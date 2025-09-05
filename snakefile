@@ -1,4 +1,5 @@
 configfile: "config.yaml"
+workdir: "../.."
 
 SAMPLES     = config["samples"]            
 FASTQ_ROOT  = config["fastq_root"]          
@@ -18,7 +19,7 @@ rule all:
 rule cellranger_count:
     """
         Rule runs all fastq files through cellranger-atac count. It assumes a directory structure like:
-        
+
         └── parent directory (patient ID)/
             ├── Raw fastqs/
             │   ├── time point 1
