@@ -1,0 +1,14 @@
+# Root directory that contains one folder per timepoint with demultiplexed FASTQs
+fastq_root: "Raw_fastqs"
+
+# Where to write Cell Ranger ATAC outputs
+out_root: "CR_outs"
+
+# blackilsited reference genome for Cell Ranger ATAC
+reference: "/home/l2825/atac_practice/reference/GRCh38_cellranger_mkref"
+
+# One entry per timepoint/sample (folder names under fastq_root)
+samples:
+  - timepoint1
+  - timepoint2
+  - timepoint3
