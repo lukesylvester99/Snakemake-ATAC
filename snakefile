@@ -3,28 +3,41 @@ configfile: "config.yaml"
 SAMPLES     = config["samples"]            
 FASTQ_ROOT  = config["fastq_root"]          
 OUT_ROOT    = config["out_root"]           
-REFERENCE   = config["reference"]           
+REFERENCE   = config["reference"]     
+SEURAT_INPUTS = config["seurat_inputs"]      
 
 rule all:
     input:
-        expand("results/{samples}/qc/filtered.{samples}.seurat.rds", samples=SAMPLES)
+        expand("{out_root}/{sample}/outs/web_summary.html",
+               out_root=OUT_ROOT, sample=SAMPLES),
+
+        expand("{out_root}/seurat_objects/{sample}.rds",
+               out_root=OUT_ROOT, sample=SAMPLES)
+
 
 rule cellranger_count:
     """
         Rule runs all fastq files through cellranger-atac count. It assumes a directory structure like:
-
+        
         └── parent directory (patient ID)/
             ├── Raw fastqs/
             │   ├── time point 1
             │   ├── tiepoint 2
             │   └── timepoint 3
-            └── outs/
-                ├── time point 1/
-                │   └── cellranger files
-                ├── timepoint 2/
-                │   └── cellranger files
-                └── timepoint 3/
-                    └── cellranger files
+            ├── outs/
+            │   ├── time point 1/
+            │   │   └── cellranger files
+            │   ├── timepoint 2/
+            │   │   └── cellranger files
+            │   └── timepoint 3/
+            │       └── cellranger files
+            └── workflows/
+                ├── snakefiles/
+                │   ├── snakefile
+                │   └── config.yaml
+                └── scripts/
+                    ├── Rscript1
+                    └── Rscript2
         """
 
     input:
@@ -52,5 +65,32 @@ rule cellranger_count:
           --reference="{params.reference}" \
           --fastqs="{input.fastq_dir}" \
           --localcores {threads} \
-          --localmem {int(resources.mem_mb/1024)}
         """
+
+rule create_seurat_object:
+    """
+        Rule to create a Seurat object from Cell Ranger ATAC output.
+        Object will be loaded with all necessary matrices, metadata, and annotations.
+        Object will be saved as an RDS file.
+    """
+
+    input:
+        # ensure Cell Ranger finished
+        html=lambda wc: f"{OUT_ROOT}/{wc.sample}/outs/web_summary.html",
+
+        # Seurat input files from Cell Ranger output
+        files=lambda wc: [f"{OUT_ROOT}/{wc.sample}/outs/{fname}" for fname in SEURAT_INPUTS]
+
+    output:
+        rds=f"{OUT_ROOT}" + "/seurat_objects/{sample}.rds"
+    params:
+        cr_outs=lambda wc: f"{OUT_ROOT}/{wc.sample}/outs"
+    threads: 4  
+    shell:
+        r"""
+        mkdir -p "{OUT_ROOT}/seurat_objects"
+        Rscript ../scripts/create_seurat_object.R \
+          --cr_outs "{params.cr_outs}" \
+          --output_rds "{output.rds}"
+        """
+    

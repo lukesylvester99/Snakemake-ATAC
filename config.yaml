@@ -9,6 +9,12 @@ reference: "/home/l2825/atac_practice/reference/GRCh38_cellranger_mkref"
 
 # One entry per timepoint/sample (folder names under fastq_root)
 samples:
-  - timepoint1
-  - timepoint2
-  - timepoint3
+  - fastqs_A10
+  - fastqs_A9
+
+#list of Seurat input files
+seurat_inputs:
+  - "filtered_peak_bc_matrix.h5"
+  - "singlecell.csv"
+  - "fragments.tsv.gz"
+  - "fragments.tsv.gz.tbi"
