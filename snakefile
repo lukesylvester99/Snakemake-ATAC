@@ -52,8 +52,7 @@ rule cellranger_count:
     threads: 8
     resources:
         mem_mb=64000
-    conda:
-        "envs/cellranger-atac.yaml"   # optional; ensure cellranger-atac is on PATH
+        
     shell:
         r"""
         test -d "{input.fastq_dir}" || (echo "FASTQ folder not found: {input.fastq_dir}" && exit 1)
