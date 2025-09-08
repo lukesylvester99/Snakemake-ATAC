@@ -9,8 +9,13 @@ SEURAT_INPUTS = config["seurat_inputs"]
 
 rule all:
     input:
-        expand("{out_root}/seurat_objects/{sample}.rds",
+        # final QC reports
+        expand("{out_root}/qc_reports/{sample}_qc_report.pdf",
+               out_root=OUT_ROOT, sample=SAMPLES),
+        # final cleaned Seurat objects
+        expand("{out_root}/seurat_objects_clean/{sample}_filtered_cells.rds",
                out_root=OUT_ROOT, sample=SAMPLES)
+
 
 
 rule cellranger_count:
