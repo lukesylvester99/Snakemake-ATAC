@@ -95,19 +95,20 @@ rule create_seurat_object:
 rule qc_metrics:
     """
         Rule to generate QC metrics and plots from Seurat object.
-  
+        Generates a PDF report with various QC plots and statistics, as well
+        as a cleaned seurat object with QC metrics added.  
     """
-
     input:
-        rds=f"{OUT_ROOT}/seurat_objects/{sample}.rds"
+        rds = f"{OUT_ROOT}" + "/seurat_objects/{sample}.rds"
     output:
-        pdf=f"{OUT_ROOT}/qc_reports/{sample}_qc_report.pdf"
-    params:
-        cr_outs=lambda wc: f"{OUT_ROOT}/{wc.sample}/outs"
+        pdf     = f"{OUT_ROOT}" + "/qc_reports/{sample}_qc_report.pdf",
+        cleaned = f"{OUT_ROOT}" + "/seurat_objects_clean/{sample}_filtered_cells.rds"
+    threads: 2
     shell:
         r"""
-        mkdir -p "{OUT_ROOT}/qc_reports"
+        mkdir -p "{OUT_ROOT}/qc_reports" "{OUT_ROOT}/seurat_objects_clean"
         Rscript workflows/scripts/generate_qc_report.R \
-          --input_rds "{input.rds}" \
-          --output_pdf "{output.pdf}"
+          --input_rds="{input.rds}" \
+          --output_pdf="{output.pdf}" \
+          --output_rds="{output.cleaned}"
         """

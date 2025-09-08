@@ -10,7 +10,7 @@ suppressPackageStartupMessages({
 })
 
 ####################
-#  CLI arg parsing #
+#   arg parsing.   #
 # ##################
 """
 Need to disect the argumments passed from Snakemake: 
