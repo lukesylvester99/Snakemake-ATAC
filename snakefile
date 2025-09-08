@@ -91,4 +91,23 @@ rule create_seurat_object:
           --cr_outs "{params.cr_outs}" \
           --output_rds "{output.rds}"
         """
-    
+
+rule qc_metrics:
+    """
+        Rule to generate QC metrics and plots from Seurat object.
+  
+    """
+
+    input:
+        rds=f"{OUT_ROOT}/seurat_objects/{sample}.rds"
+    output:
+        pdf=f"{OUT_ROOT}/qc_reports/{sample}_qc_report.pdf"
+    params:
+        cr_outs=lambda wc: f"{OUT_ROOT}/{wc.sample}/outs"
+    shell:
+        r"""
+        mkdir -p "{OUT_ROOT}/qc_reports"
+        Rscript workflows/scripts/generate_qc_report.R \
+          --input_rds "{input.rds}" \
+          --output_pdf "{output.pdf}"
+        """
