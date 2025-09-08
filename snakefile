@@ -61,7 +61,7 @@ rule cellranger_count:
         cellranger-atac count \
           --id="{params.run_id}" \
           --reference="{params.reference}" \
-          --fastqs="{input.fastq_dir}" \
+          --fastqs="../{input.fastq_dir}" \
           --localcores {threads}
          
         touch "{output.done}"
