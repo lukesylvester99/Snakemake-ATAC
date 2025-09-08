@@ -5,7 +5,7 @@ fastq_root: "Raw_fastqs"
 out_root: "CR_outs"
 
 # blackilsited reference genome for Cell Ranger ATAC
-reference: "/home/l2825/atac_practice/reference/masked_genome.fa"
+reference: "/home/l2825/atac_practice/reference/GRCh38_cellranger_mkref"
 
 # One entry per timepoint/sample (folder names under fastq_root)
 samples:
