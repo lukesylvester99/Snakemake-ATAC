@@ -44,7 +44,8 @@ rule cellranger_count:
     input:
         fastq_dir=lambda wc: f"{FASTQ_ROOT}/{wc.sample}"
     output:
-        html=f"{OUT_ROOT}" + "/{sample}/outs/web_summary.html"
+        cr_outs_dir = directory(f"{OUT_ROOT}/{{sample}}/outs"),
+        done = touch(f"{OUT_ROOT}/{{sample}}/.cellranger_done")
     params:
         outdir=OUT_ROOT,
         reference=REFERENCE,
@@ -52,7 +53,7 @@ rule cellranger_count:
     threads: 8
     resources:
         mem_mb=64000
-        
+
     shell:
         r"""
         test -d "{input.fastq_dir}" || (echo "FASTQ folder not found: {input.fastq_dir}" && exit 1)
@@ -64,7 +65,9 @@ rule cellranger_count:
           --id="{params.run_id}" \
           --reference="{params.reference}" \
           --fastqs="{input.fastq_dir}" \
-          --localcores {threads} \
+          --localcores {threads}
+         
+        touch "{output.done}"
         """
 
 rule create_seurat_object:
@@ -76,7 +79,7 @@ rule create_seurat_object:
 
     input:
         # ensure Cell Ranger finished
-        html=lambda wc: f"{OUT_ROOT}/{wc.sample}/outs/web_summary.html",
+        done= lambda wc: f"{OUT_ROOT}/{wc.sample}/.cellranger_done",
 
         # Seurat input files from Cell Ranger output
         files=lambda wc: [f"{OUT_ROOT}/{wc.sample}/outs/{fname}" for fname in SEURAT_INPUTS]
@@ -89,7 +92,7 @@ rule create_seurat_object:
     shell:
         r"""
         mkdir -p "{OUT_ROOT}/seurat_objects"
-        Rscript ../scripts/create_seurat_object.R \
+        Rscript workflows/scripts/create_seurat_object.R \
           --cr_outs "{params.cr_outs}" \
           --output_rds "{output.rds}"
         """
