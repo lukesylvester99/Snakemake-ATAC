@@ -9,9 +9,6 @@ SEURAT_INPUTS = config["seurat_inputs"]
 
 rule all:
     input:
-        expand("{out_root}/{sample}/outs/web_summary.html",
-               out_root=OUT_ROOT, sample=SAMPLES),
-
         expand("{out_root}/seurat_objects/{sample}.rds",
                out_root=OUT_ROOT, sample=SAMPLES)
 
@@ -79,10 +76,8 @@ rule create_seurat_object:
 
     input:
         # ensure Cell Ranger finished
-        done= lambda wc: f"{OUT_ROOT}/{wc.sample}/.cellranger_done",
-
-        # Seurat input files from Cell Ranger output
-        files=lambda wc: [f"{OUT_ROOT}/{wc.sample}/outs/{fname}" for fname in SEURAT_INPUTS]
+        cr_outs_dir = lambda wc: f"{OUT_ROOT}/{wc.sample}/outs",
+        done = lambda wc: f"{OUT_ROOT}/{wc.sample}/.cellranger_done"
 
     output:
         rds=f"{OUT_ROOT}" + "/seurat_objects/{sample}.rds"
