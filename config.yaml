@@ -1,15 +1,32 @@
-# Where to write Cell Ranger ATAC outputs
-out_root: "snake_outs"
-
-# blackilsited reference genome for Cell Ranger ATAC
-reference: "/home/l2825/atac_practice/reference/GRCh38_cellranger_mkref"
+""""
+** You need to change the following three config variables: **
+  path_to_fastqs
+  reference
+  samples
+""""
 
 # One entry per timepoint/sample (folder names under fastq_root)
 samples:
   - fastqs_A10
   - fastqs_A9
 
+#path to raw fastqs
 path_to_fastqs: "/home/l2825/SM012/Raw_fastqs"
+
+# blackilsited reference genome for Cell Ranger ATAC
+reference: "/home/l2825/atac_practice/reference/GRCh38_cellranger_mkref"
+
+
+
+"""
+These are fine to leave as default for most use cases.
+"""
+
+# Where to write Cell Ranger ATAC outputs
+out_root: "snake_outs"
+
+# Where to write log files
+log_dir: "snake_outs/logs"
 
 #list of Seurat input files
 seurat_inputs:

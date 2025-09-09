@@ -5,7 +5,8 @@ SAMPLES     = config["samples"]
 FASTQ_ROOT = config["path_to_fastqs"]         
 OUT_ROOT    = config["out_root"]           
 REFERENCE   = config["reference"]     
-SEURAT_INPUTS = config["seurat_inputs"]      
+SEURAT_INPUTS = config["seurat_inputs"]
+LOG_ROOT = config["log_dir"]
 
 rule all:
     input:
@@ -55,7 +56,8 @@ rule cellranger_count:
     threads: 16
     resources:
         mem_mb=64000
-
+    log:
+        run = f"{LOG_ROOT}" + "/cellranger_count/{sample}.log"
     shell:
         r"""
         set -euo pipefail
@@ -90,6 +92,8 @@ rule create_seurat_object:
     params:
         snake_outs=lambda wc: f"{OUT_ROOT}/{wc.sample}/outs"
     threads: 4  
+    log:
+        run = f"{LOG_ROOT}" + "/create_seurat_obj/{sample}.log"
     shell:
         r"""
         mkdir -p "{OUT_ROOT}/seurat_objects"
