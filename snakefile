@@ -52,12 +52,14 @@ rule cellranger_count:
         outdir=OUT_ROOT,
         reference=REFERENCE,
         run_id=lambda wc: wc.sample
-    threads: 8
+    threads: 16
     resources:
         mem_mb=64000
 
     shell:
         r"""
+        set -euo pipefail
+
         test -d "{input.fastq_dir}" || (echo "FASTQ folder not found: {input.fastq_dir}" && exit 1)
 
         mkdir -p "{params.outdir}"
@@ -96,23 +98,3 @@ rule create_seurat_object:
           --output_rds "{output.rds}"
         """
 
-rule qc_metrics:
-    """
-        Rule to generate QC metrics and plots from Seurat object.
-        Generates a PDF report with various QC plots and statistics, as well
-        as a cleaned seurat object with QC metrics added.  
-    """
-    input:
-        rds = f"{OUT_ROOT}" + "/seurat_objects/{sample}.rds"
-    output:
-        pdf     = f"{OUT_ROOT}" + "/qc_reports/{sample}_qc_report.pdf",
-        cleaned = f"{OUT_ROOT}" + "/seurat_objects_clean/{sample}_filtered_cells.rds"
-    threads: 2
-    shell:
-        r"""
-        mkdir -p "{OUT_ROOT}/qc_reports" "{OUT_ROOT}/seurat_objects_clean"
-        Rscript workflows/scripts/generate_qc_report.R \
-          --input_rds="{input.rds}" \
-          --output_pdf="{output.pdf}" \
-          --output_rds="{output.cleaned}"
-        """
