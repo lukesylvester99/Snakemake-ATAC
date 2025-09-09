@@ -14,8 +14,8 @@ suppressPackageStartupMessages({
 # ##################
 """
 Need to disect the argumments passed from Snakemake: 
-    [1] --cr_outs=/path/to/outs/fastqs_A10/outs
-    [2] --output_rds=/path/to/CR_outs/seurat_objects/fastqs_A10.rds
+    [1] --snake_outs=/path/to/outs/fastqs_A10/outs
+    [2] --output_rds=/path/to/snake_outs/seurat_objects/fastqs_A10.rds
 
 """
 
@@ -31,10 +31,10 @@ get_arg <- function(name, default = NULL, required = FALSE) { #function looks in
   sub(pat, "", hit[1]) #return the value after the '='
 }
 
-cr_outs    <- get_arg("cr_outs",    required = TRUE) #call function 2x
+snake_outs    <- get_arg("snake_outs",    required = TRUE) #call function 2x
 output_rds <- get_arg("output_rds", required = TRUE)
 
-message("cr_outs: ", cr_outs)
+message("snake_outs: ", snake_outs)
 message("output_rds: ", output_rds)
 
 
@@ -46,9 +46,9 @@ message("output_rds: ", output_rds)
 Define paths to required input files and check they exist.
 """
 
-h5_path   <- file.path(cr_outs, "filtered_peak_bc_matrix.h5")
-meta_path <- file.path(cr_outs, "singlecell.csv")
-frag_path <- file.path(cr_outs, "fragments.tsv.gz")
+h5_path   <- file.path(snake_outs, "filtered_peak_bc_matrix.h5")
+meta_path <- file.path(snake_outs, "singlecell.csv")
+frag_path <- file.path(snake_outs, "fragments.tsv.gz")
 frag_tbi  <- paste0(frag_path, ".tbi")
 
 required <- c(h5_path, meta_path, frag_path)

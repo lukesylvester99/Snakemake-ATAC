@@ -16,8 +16,8 @@ suppressPackageStartupMessages({
 # ##################
 """
 Need to disect the argumments passed from Snakemake: 
-        --input_rds CR_outs/seurat_objects/sample.rds 
-        --output_pdf CR_outs/qc_reports/sample_qc_report.pdf
+        --input_rds snake_outs/seurat_objects/sample.rds 
+        --output_pdf snake_outs/qc_reports/sample_qc_report.pdf
 """
 
 args <- commandArgs(trailingOnly = TRUE)
