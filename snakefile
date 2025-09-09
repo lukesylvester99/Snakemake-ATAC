@@ -59,22 +59,38 @@ rule cellranger_count:
     log:
         run = f"{LOG_ROOT}" + "/cellranger_count/{sample}.log"
     shell:
-        r"""
+          r"""
         set -euo pipefail
+        mkdir -p "{params.outdir}" "$(dirname "{log.run}")"
 
-        test -d "{input.fastq_dir}" || (echo "FASTQ folder not found: {input.fastq_dir}" && exit 1)
+        {
+          echo "==== cellranger_count START $(date) ===="
+          echo "HOST: $(hostname)"
+          echo "SAMPLE: {wildcards.sample}"
+          echo "FASTQ_DIR: {input.fastq_dir}"
+          echo "OUT_ROOT: {params.outdir}"
+          echo "REFERENCE: {params.reference}"
+          echo "THREADS: {threads}"
+          echo
 
-        mkdir -p "{params.outdir}"
-        cd "{params.outdir}"
+          test -d "{input.fastq_dir}" || (echo "FASTQ folder not found: {input.fastq_dir}" >&2; exit 1)
 
-        cellranger-atac count \
-          --id="{params.run_id}" \
-          --reference="{params.reference}" \
-          --fastqs="{input.fastq_dir}" \
-          --localcores {threads}
+          cd "{params.outdir}"
+
+          cellranger-atac count \
+            --id="{params.run_id}" \
+            --reference="{params.reference}" \
+            --fastqs="{input.fastq_dir}" \
+            --localcores {threads}
          
-        touch "{wildcards.sample}/.cellranger_done"
+          echo
+          echo "Marking completion: {wildcards.sample}/.cellranger_done"
+          touch "{wildcards.sample}/.cellranger_done"
+
+          echo "==== cellranger_count END $(date) ===="
+        } &> "{log.run}"
         """
+
 
 rule create_seurat_object:
     """
@@ -84,7 +100,6 @@ rule create_seurat_object:
     """
     input:
         # ensure Cell Ranger finished
-        snake_outs_dir = lambda wc: f"{OUT_ROOT}/{wc.sample}/outs/fragments.tsv.gz",
         done = lambda wc: f"{OUT_ROOT}/{wc.sample}/.cellranger_done"
 
     output:
@@ -96,9 +111,20 @@ rule create_seurat_object:
         run = f"{LOG_ROOT}" + "/create_seurat_obj/{sample}.log"
     shell:
         r"""
-        mkdir -p "{OUT_ROOT}/seurat_objects"
-        Rscript workflows/scripts/create_seurat_object.R \
-          --snake_outs "{params.snake_outs}" \
-          --output_rds "{output.rds}"
-        """
+        set -euo pipefail
+        mkdir -p "{OUT_ROOT}/seurat_objects" "$(dirname "{log.run}")"
 
+        {
+          echo "==== create_seurat_object START $(date) ===="
+          echo "SAMPLE: {wildcards.sample}"
+          echo "snake_outs: {params.snake_outs}"
+          echo "OUTPUT_RDS: {output.rds}"
+          echo
+
+          Rscript workflows/scripts/create_seurat_object.R \
+            --snake_outs="{params.snake_outs}" \
+            --output_rds="{output.rds}"
+
+          echo "==== create_seurat_object END $(date) ===="
+        } &> "{log.run}"
+        """
