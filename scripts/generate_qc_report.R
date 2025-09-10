@@ -7,48 +7,56 @@ suppressPackageStartupMessages({
   library(GenomicRanges)
   library(EnsDb.Hsapiens.v86)
   library(ggplot2)
+  library(grid)   # for optional table/text pages if needed later
 })
 
+# -----------------------------
+# Global plot theme & settings
+# -----------------------------
+theme_set(
+  theme_bw(base_size = 12) +
+    theme(
+      plot.title = element_text(face = "bold", size = 14, margin = margin(b = 10)),
+      axis.title = element_text(size = 12),
+      plot.margin = margin(10, 12, 10, 12),
+      panel.grid.minor = element_blank()
+    )
+)
 
+# QC threshold constants 
+CUT_NCOUNT_MIN <- 1000
+CUT_NCOUNT_MAX <- 100000
+CUT_TSS_MIN    <- 4
+CUT_NS_MAX     <- 4
+CUT_FRIP_MIN   <- 20       # percent
+CUT_BL_MAX     <- 0.05     # fraction
 
-####################
-#  arg parsing #
-# ##################
-
-#Need to disect the argumments passed from Snakemake: 
-#        --input_rds snake_outs/seurat_objects/sample.rds 
-#       --output_pdf snake_outs/qc_reports/sample_qc_report.pdf
-
-
+# -----------------
+# Arg parsing
+# -----------------
 args <- commandArgs(trailingOnly = TRUE)
-get_arg <- function(name, default = NULL, required = FALSE) { #function looks in args for an argument /
-                                                              #that matches the pattern --<name>=<value> and extracts <value>
-  pat <- paste0("^--", name, "=") 
-  hit <- grep(pat, args, value = TRUE) #`grep` returns the elements of args that match the pattern
+get_arg <- function(name, default = NULL, required = FALSE) {
+  pat <- paste0("^--", name, "=")
+  hit <- grep(pat, args, value = TRUE)
   if (length(hit) == 0) {
     if (required) stop(sprintf("Missing required argument --%s", name), call. = FALSE)
     return(default)
   }
-  sub(pat, "", hit[1]) #return the value after the '='
+  sub(pat, "", hit[1])
 }
 
-input_rds    <- get_arg("input_rds",    required = TRUE) #call function 3x
+input_rds  <- get_arg("input_rds",  required = TRUE)
 output_pdf <- get_arg("output_pdf", required = TRUE)
-output_rds  <- get_arg("output_rds", required = TRUE)
+output_rds <- get_arg("output_rds", required = TRUE)
 
 message("input_rds: ", input_rds)
 message("output_pdf: ", output_pdf)
 message("output_rds: ", output_rds)
 
-##############
-# QC Metrics #
-##############
-
-#Load the Seurat object and generate QC metrics and plots.
-
-
-# ---------- Load object ----------
-seurat_obj <- readRDS(input_rds) #load seurat object
+# -----------------------------------
+# Load object & basic sanity checks
+# -----------------------------------
+seurat_obj <- readRDS(input_rds)
 if (!"peaks" %in% Assays(seurat_obj)) {
   stop("Expected a 'peaks' ChromatinAssay in the Seurat object.", call. = FALSE)
 }
@@ -58,143 +66,64 @@ frags <- Fragments(seurat_obj, assay = "peaks")
 if (length(frags) == 0) {
   stop("No fragment objects attached to assay 'peaks'.", call. = FALSE)
 }
-frag_path <- frags[[1]]@path  
+frag_path <- frags[[1]]@path  # Path() accessor not exported in Signac 1.15.0
 if (is.null(frag_path) || !nzchar(frag_path) || !file.exists(frag_path)) {
   stop(sprintf("Fragments file missing or not found at: %s", as.character(frag_path)), call. = FALSE)
 }
 
-# ---------- Open a PDF device ----------
+# -----------------------------
+# Open PDF (safe close on exit)
+# -----------------------------
 dir.create(dirname(output_pdf), showWarnings = FALSE, recursive = TRUE)
-pdf(file = output_pdf, width = 8.5, height = 11)
-on.exit(dev.off(), add = TRUE)
+pdf(file = output_pdf, width = 8.5, height = 11, pointsize = 12)
+on.exit({
+  try(dev.off(), silent = TRUE)
+}, add = TRUE)
 
-# A helper to print text blocks as a page
+# ---------------------------------------------------
+# Helper: text page with sane margins (no overlap)
+# ---------------------------------------------------
 print_text_page <- function(title, lines) {
-  plot.new(); title(main = title, cex.main = 1.2)
+  op <- par(no.readonly = TRUE); on.exit(par(op), add = TRUE)
+  par(mar = c(1.5, 1.5, 3.5, 1.5))  # enlarge top margin
+  plot.new()
+  title(main = title, cex.main = 1.2, line = 1)
   txt <- paste(lines, collapse = "\n")
-  mtext(txt, side = 3, adj = 0, line = -2, cex = 0.75, family = "mono")
+  mtext(txt, side = 3, adj = 0, line = -0.5, cex = 0.8, family = "mono")
 }
 
-# ---------- TSS enrichment ----------
+# ----------------------
+# Object summary page
+# ----------------------
+print_text_page(
+  "Object summary",
+  c(
+    paste("Cells:", ncol(seurat_obj)),
+    paste("Peaks:", nrow(seurat_obj)),
+    paste("Fragments file:", basename(frag_path))
+  )
+)
+
+# -----------------------
+# TSS enrichment
+# -----------------------
 message("Computing TSS enrichment…")
 seurat_obj <- TSSEnrichment(seurat_obj)
 
-# Scatter: counts vs TSS
 p_tss <- DensityScatter(
   object = seurat_obj,
   x = "nCount_peaks",
   y = "TSS.enrichment",
   log_x = TRUE,
   quantiles = TRUE
-) + ggtitle("Library Size vs TSS Enrichment") +
-    xlab("nCount_peaks (log)") + ylab("TSS.enrichment")
+) +
+  ggtitle("Library Size vs TSS Enrichment") +
+  xlab("nCount_peaks (log10)") +
+  ylab("TSS.enrichment") +
+  geom_hline(yintercept = CUT_TSS_MIN, linetype = "dashed") +
+  geom_vline(xintercept = c(CUT_NCOUNT_MIN, CUT_NCOUNT_MAX), linetype = "dashed") +
+  coord_cartesian(
+    ylim = c(0, max(CUT_TSS_MIN * 1.5, quantile(seurat_obj$TSS.enrichment, 0.99, na.rm = TRUE)))
+  )
 
-print(p_tss)
-
-tss_vals <- seurat_obj$TSS.enrichment #extract TSS and nCount values from metadata
-ncount   <- seurat_obj$nCount_peaks
-tss_stats <- c(capture.output(summary(tss_vals)),
-               "",
-               paste("Quantiles (TSS.enrichment):"),
-               capture.output(quantile(tss_vals, probs = seq(0, 1, 0.1), na.rm = TRUE)))
-ncount_stats <- c(capture.output(summary(ncount)),
-                  "",
-                  paste("Quantiles (nCount_peaks):"),
-                  capture.output(quantile(ncount, probs = seq(0, 1, 0.1), na.rm = TRUE)))
-print_text_page("Summary: TSS & nCount_peaks", c(tss_stats, "", ncount_stats))
-
-# ---------- Nucleosome signal ----------
-message("Computing nucleosome signal…")
-seurat_obj <- NucleosomeSignal(seurat_obj)
-
-seurat_obj$nucleosome_group <- ifelse(seurat_obj$nucleosome_signal > 4, "NS > 4", "NS <= 4")
-p_frag_hist <- FragmentHistogram(object = seurat_obj, group.by = "nucleosome_group") +
-  ggtitle("Fragment size distribution by nucleosome signal")
-print(p_frag_hist)
-
-ns_vals <- seurat_obj$nucleosome_signal
-ns_stats <- c(capture.output(summary(ns_vals)),
-              "",
-              "Quantiles (nucleosome_signal):",
-              capture.output(quantile(ns_vals, probs = seq(0, 1, 0.1), na.rm = TRUE)))
-print_text_page("Summary: Nucleosome signal", ns_stats)
-
-# ---------- percent reads in peaks  ----------
-message("Computing pct_reads_in_peaks…")
-if (!all(c("peak_region_fragments","passed_filters") %in% colnames(seurat_obj[[]]))) {
-  warning("Metadata missing 'peak_region_fragments' or 'passed_filters'. Percent reads in peaks will be NA where missing.")
-}
-seurat_obj$pct_reads_in_peaks <- with(seurat_obj@meta.data,
-  100 * (peak_region_fragments / pmax(passed_filters, 1))
-)
-
-hist(seurat_obj$pct_reads_in_peaks,
-     main = "Percent Reads in Peaks per Cell", xlab = "Percent",
-     breaks = 50, col = "steelblue")
-frip_vals <- seurat_obj$pct_reads_in_peaks
-frip_stats <- c(capture.output(summary(frip_vals)),
-                "",
-                "Quantiles (pct_reads_in_peaks):",
-                capture.output(quantile(frip_vals, probs = seq(0, 1, 0.1), na.rm = TRUE)))
-print_text_page("Summary: FRIP (pct_reads_in_peaks)", frip_stats)
-
-# ---------- Blacklist fraction ----------
-message("Computing blacklist fraction…")
-data("blacklist_hg38_unified", package = "Signac", envir = environment())
-seurat_obj$blacklist_ratio <- FractionCountsInRegion(
-  object  = seurat_obj,
-  assay   = "peaks",
-  regions = blacklist_hg38_unified
-)
-
-hist(seurat_obj$blacklist_ratio,
-     breaks = 50,
-     main = "Blacklist Ratio per Cell",
-     xlab = "Fraction of fragments in blacklist regions",
-     col = "skyblue", border = "white")
-bl_vals <- seurat_obj$blacklist_ratio
-bl_stats <- c(capture.output(summary(bl_vals)),
-              "",
-              "Quantiles (blacklist_ratio):",
-              capture.output(quantile(bl_vals, probs = seq(0, 1, 0.1), na.rm = TRUE)))
-print_text_page("Summary: Blacklist fraction", bl_stats)
-
-# ---------- Close PDF ----------
-dev.off()
-
-message("QC report written: ", output_pdf)
-
-
-################################
-# Filter the cells based on QC #
-################################
-
-#filter the Seurat object to remove low-quality cells based on QC metrics.
-#Will return a new Seurat object with only high-quality cells, 'filtered_cells'
-
-#QC metrics used:
-#    - nCount_peaks > 1000 & < 100000
-#    - pct_reads_in_peaks > 20
-#   - blacklist_ratio < 0.05
-#    - nucleosome_signal < 4
-#    - TSS.enrichment > 4
-
-
-filtered_cells <- subset(
-  x = seurat_obj,
-  subset = nCount_peaks > 1000 & 
-    nCount_peaks < 100000 & 
-    pct_reads_in_peaks > 20 & 
-    blacklist_ratio < 0.05 & 
-    nucleosome_signal < 4 & 
-    TSS.enrichment > 4 
-  ) 
-
-# record the sample name inside the object (from the filename)
-sample_id <- sub("_filtered_cells\\.rds$", "", basename(output_rds))
-filtered_cells@misc$sample_id <- sample_id
-
-# ensure the output dir exists and save the cleaned object
-dir.create(dirname(output_rds), showWarnings = FALSE, recursive = TRUE)
-saveRDS(filtered_cells, file = output_rds)
-message("Cleaned Seurat saved: ", output_rds)
+p
