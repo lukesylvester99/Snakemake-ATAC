@@ -48,7 +48,6 @@ rule cellranger_count:
     input:
         fastq_dir=lambda wc: f"{FASTQ_ROOT}/{wc.sample}"
     output:
-        seurat_files=[f"{OUT_ROOT}/{{sample}}/outs/{fname}" for fname in SEURAT_INPUTS],
         done = touch(f"{OUT_ROOT}/{{sample}}/.cellranger_done")
     params:
         outdir=OUT_ROOT,
@@ -100,7 +99,9 @@ rule create_seurat_object:
         Object will be saved as an RDS file.
     """
     input:
-       seurat_files=lambda wc: seurat_input_paths(wc.sample),
+       expand("{out_root}/{sample}/.cellranger_done",
+           out_root=OUT_ROOT, sample=SAMPLES)
+
 
     output:
         rds=f"{OUT_ROOT}" + "/seurat_objects/{sample}.rds"
