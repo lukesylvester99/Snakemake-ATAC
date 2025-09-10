@@ -104,7 +104,7 @@ rule create_seurat_object:
     output:
         rds=f"{OUT_ROOT}" + "/seurat_objects/{sample}.rds"
     params:
-        snake_outs=lambda wc: f"{OUT_ROOT}/{wc.sample}/outs"
+        snake_outs=lambda wc: f"{OUT_ROOT}/{wc.sample}/outs",
         anno_cache = "workflows/cache/hg38_annotations_ucsc.rds"
     threads: 4  
     log:
