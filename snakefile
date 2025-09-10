@@ -105,6 +105,7 @@ rule create_seurat_object:
         rds=f"{OUT_ROOT}" + "/seurat_objects/{sample}.rds"
     params:
         snake_outs=lambda wc: f"{OUT_ROOT}/{wc.sample}/outs"
+        anno_cache = "workflows/cache/hg38_annotations_ucsc.rds"
     threads: 4  
     log:
         run = f"{LOG_ROOT}" + "/create_seurat_obj/{sample}.log"
@@ -127,7 +128,8 @@ rule create_seurat_object:
 
         Rscript workflows/scripts/create_seurat_object.R \
             --snake_outs="{params.snake_outs}" \
-            --output_rds="{output.rds}"
+            --output_rds="{output.rds}"\
+            --anno_cache="{params.anno_cache}"
 
         echo "==== create_seurat_object END $(date) ===="
         ) &> "{log.run}"

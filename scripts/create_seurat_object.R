@@ -9,6 +9,9 @@ suppressPackageStartupMessages({
   library(ggplot2)
 })
 
+# Increase download timeout for slow or blocked FTP connections
+options(timeout = max(600, getOption("timeout")))
+
 ####################
 #   arg parsing.   #
 # ##################
@@ -16,6 +19,7 @@ suppressPackageStartupMessages({
 #Need to disect the argumments passed from Snakemake: 
     #[1] --snake_outs=/path/to/outs/fastqs_A10/outs
     #[2] --output_rds=/path/to/snake_outs/seurat_objects/fastqs_A10.rds
+    #[3] --anno_cache=/path/to/workflows/cache/hg38_annotations_ucsc.rds
 
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -32,9 +36,11 @@ get_arg <- function(name, default = NULL, required = FALSE) { #function looks in
 
 snake_outs    <- get_arg("snake_outs",    required = TRUE) #call function 2x
 output_rds <- get_arg("output_rds", required = TRUE)
+anno_cache <- get_arg("anno_cache", required = TRUE)
 
 message("snake_outs: ", snake_outs)
 message("output_rds: ", output_rds)
+message("anno_cache: ", anno_cache)
 
 
 #########################
@@ -149,10 +155,14 @@ DefaultAssay(seurat_obj) <- "peaks"
 
 
 message("Adding hg38 gene annotations (EnsDb.Hsapiens.v86)…")
-annotations <- GetGRangesFromEnsDb(ensdb = EnsDb.Hsapiens.v86)
-seqlevelsStyle(annotations) <- "UCSC"  # e.g., 'chr1'
-genome(annotations)          <- "hg38"
-Annotation(seurat_obj)       <- annotations
+annotations <- readRDS(anno_cache) #load cached annotations
+
+stopifnot(methods::is(annotations, "GRanges"))
+if (!all(grepl("^chr", GenomeInfoDb::seqlevels(annotations)))) {
+  stop("Cached annotations do not use UCSC-style 'chr' seqlevels.", call. = FALSE)
+}
+
+Annotation(seurat_obj) <- annotations
 
 # ##########
 # Save Obj #
