@@ -60,7 +60,7 @@ rule cellranger_count:
         set -euo pipefail
         mkdir -p "{params.outdir}" "$(dirname "{log.run}")"
 
-        {
+        (
           echo "==== cellranger_count START $(date) ===="
           echo "HOST: $(hostname)"
           echo "SAMPLE: {wildcards.sample}"
@@ -85,7 +85,7 @@ rule cellranger_count:
           touch "{wildcards.sample}/.cellranger_done"
 
           echo "==== cellranger_count END $(date) ===="
-        } &> "{log.run}"
+        ) &> "{log.run}"
         """
 
 
@@ -110,7 +110,7 @@ rule create_seurat_object:
         set -euo pipefail
         mkdir -p "{OUT_ROOT}/seurat_objects" "$(dirname "{log.run}")"
 
-        {
+        (
           echo "==== create_seurat_object START $(date) ===="
           echo "SAMPLE: {wildcards.sample}"
           echo "snake_outs: {params.snake_outs}"
@@ -122,5 +122,5 @@ rule create_seurat_object:
             --output_rds="{output.rds}"
 
           echo "==== create_seurat_object END $(date) ===="
-        } &> "{log.run}"
+        ) &> "{log.run}"
         """
