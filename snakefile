@@ -10,14 +10,20 @@ REFERENCE   = config["reference"]
 SEURAT_INPUTS = config["seurat_inputs"]
 LOG_ROOT = config["log_dir"]
 
-def seurat_input_paths(sample): #helper function to get full paths to seurat input files. Called in cellranger_count and create_seurat_object rules
+#helper function to get full paths to seurat input files. Called in cellranger_count and create_seurat_object rules
+def seurat_input_paths(sample): 
     return [f"{OUT_ROOT}/{sample}/outs/{fname}" for fname in SEURAT_INPUTS]
 
 
 #-------- Rules --------#
 rule all:
     input:
-        expand(f"{OUT_ROOT}/seurat_objects/{{sample}}.rds", sample=SAMPLES)
+        # final QC reports
+        expand("{out_root}/qc_reports/{sample}_qc_report.pdf",
+               out_root=OUT_ROOT, sample=SAMPLES),
+        # final cleaned Seurat objects
+        expand("{out_root}/seurat_objects_clean/{sample}_filtered_cells.rds",
+               out_root=OUT_ROOT, sample=SAMPLES)
 
 
 rule cellranger_count:
@@ -132,5 +138,43 @@ rule create_seurat_object:
             --anno_cache="{params.anno_cache}"
 
         echo "==== create_seurat_object END $(date) ===="
+        ) &> "{log.run}"
+        """
+
+
+rule qc_metrics:
+    """
+        Rule to generate QC metrics and plots from Seurat object.
+        Generates a PDF report with various QC plots and statistics, as well
+        as a cleaned seurat object with QC metrics added.  
+    """
+    conda: "../envs/seurat.yaml"
+    input:
+        rds = f"{OUT_ROOT}" + "/seurat_objects/{sample}.rds"
+    output:
+        pdf     = f"{OUT_ROOT}" + "/qc_reports/{sample}_qc_report.pdf",
+        cleaned = f"{OUT_ROOT}" + "/seurat_objects_clean/{sample}_filtered_cells.rds"
+    threads: 2
+    log:
+        run = f"{LOG_ROOT}" + "/qc_metrics/{sample}.log"
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p "{OUT_ROOT}/qc_reports" "{OUT_ROOT}/seurat_objects_clean" "$(dirname "{log.run}")"
+
+        (
+          echo "==== qc_metrics START $(date) ===="
+          echo "SAMPLE: {wildcards.sample}"
+          echo "INPUT_RDS: {input.rds}"
+          echo "OUTPUT_PDF: {output.pdf}"
+          echo "OUTPUT_RDS (clean): {output.cleaned}"
+          echo
+
+          Rscript workflows/scripts/generate_qc_report.R \
+            --input_rds="{input.rds}" \
+            --output_pdf="{output.pdf}" \
+            --output_rds="{output.cleaned}"
+
+          echo "==== qc_metrics END $(date) ===="
         ) &> "{log.run}"
         """

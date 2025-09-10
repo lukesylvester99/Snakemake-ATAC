@@ -14,11 +14,11 @@ suppressPackageStartupMessages({
 ####################
 #  arg parsing #
 # ##################
-"""
-Need to disect the argumments passed from Snakemake: 
-        --input_rds snake_outs/seurat_objects/sample.rds 
-        --output_pdf snake_outs/qc_reports/sample_qc_report.pdf
-"""
+
+#Need to disect the argumments passed from Snakemake: 
+#        --input_rds snake_outs/seurat_objects/sample.rds 
+#       --output_pdf snake_outs/qc_reports/sample_qc_report.pdf
+
 
 args <- commandArgs(trailingOnly = TRUE)
 get_arg <- function(name, default = NULL, required = FALSE) { #function looks in args for an argument /
@@ -43,9 +43,9 @@ message("output_rds: ", output_rds)
 ##############
 # QC Metrics #
 ##############
-"""
-Load the Seurat object and generate QC metrics and plots.
-"""
+
+#Load the Seurat object and generate QC metrics and plots.
+
 
 # ---------- Load object ----------
 seurat_obj <- readRDS(input_rds) #load seurat object
@@ -54,14 +54,15 @@ if (!"peaks" %in% Assays(seurat_obj)) {
 }
 DefaultAssay(seurat_obj) <- "peaks"
 
-frag_path <- Fragments(seurat_obj) #check that fragments file is attached to object
-if (length(frag_path) == 0 || !file.exists(frag_path[[1]]@path)) {
-  stop("Fragments file not attached or not found in object. Ensure create_seurat_object.R set 'fragments='.", call. = FALSE)
+frag_path <- Fragments(seurat_obj, assay = "peaks") #check that fragments file is attached to object
+if (length(frag_path) == 0 || !file.exists(Signac::Path(frags[[1]]))) {
+  stop("Fragments file not attached or missing. Ensure create_seurat_object.R set 'fragments='.", call. = FALSE)
 }
 
 # ---------- Open a PDF device ----------
 dir.create(dirname(output_pdf), showWarnings = FALSE, recursive = TRUE)
 pdf(file = output_pdf, width = 8.5, height = 11)
+on.exit(dev.off(), add = TRUE)
 
 # A helper to print text blocks as a page
 print_text_page <- function(title, lines) {
@@ -163,17 +164,17 @@ message("QC report written: ", output_pdf)
 ################################
 # Filter the cells based on QC #
 ################################
-"""
-filter the Seurat object to remove low-quality cells based on QC metrics.
-Will return a new Seurat object with only high-quality cells, 'filtered_cells'
 
-QC metrics used:
-    - nCount_peaks > 1000 & < 100000
-    - pct_reads_in_peaks > 20
-    - blacklist_ratio < 0.05
-    - nucleosome_signal < 4
-    - TSS.enrichment > 4
-"""
+#filter the Seurat object to remove low-quality cells based on QC metrics.
+#Will return a new Seurat object with only high-quality cells, 'filtered_cells'
+
+#QC metrics used:
+#    - nCount_peaks > 1000 & < 100000
+#    - pct_reads_in_peaks > 20
+#   - blacklist_ratio < 0.05
+#    - nucleosome_signal < 4
+#    - TSS.enrichment > 4
+
 
 filtered_cells <- subset(
   x = seurat_obj,
