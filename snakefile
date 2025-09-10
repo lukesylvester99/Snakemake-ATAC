@@ -8,15 +8,12 @@ REFERENCE   = config["reference"]
 SEURAT_INPUTS = config["seurat_inputs"]
 LOG_ROOT = config["log_dir"]
 
+def seurat_input_paths(sample):
+    return [f"{OUT_ROOT}/{sample}/outs/{fname}" for fname in SEURAT_INPUTS]
+
 rule all:
     input:
-        # final QC reports
-        expand("{out_root}/qc_reports/{sample}_qc_report.pdf",
-               out_root=OUT_ROOT, sample=SAMPLES),
-        # final cleaned Seurat objects
-        expand("{out_root}/seurat_objects_clean/{sample}_filtered_cells.rds",
-               out_root=OUT_ROOT, sample=SAMPLES)
-
+        rds=f"{OUT_ROOT}" + "/seurat_objects/{sample}.rds"
 
 
 rule cellranger_count:
@@ -47,7 +44,7 @@ rule cellranger_count:
     input:
         fastq_dir=lambda wc: f"{FASTQ_ROOT}/{wc.sample}"
     output:
-        snake_outs_dir = directory(f"{OUT_ROOT}/{{sample}}/outs"),
+        seurat_files=lambda wc: seurat_input_paths(wc.sample),
         done = touch(f"{OUT_ROOT}/{{sample}}/.cellranger_done")
     params:
         outdir=OUT_ROOT,
@@ -99,8 +96,7 @@ rule create_seurat_object:
         Object will be saved as an RDS file.
     """
     input:
-        # ensure Cell Ranger finished
-        done = lambda wc: f"{OUT_ROOT}/{wc.sample}/.cellranger_done"
+       seurat_files=lambda wc: seurat_input_paths(wc.sample),
 
     output:
         rds=f"{OUT_ROOT}" + "/seurat_objects/{sample}.rds"
