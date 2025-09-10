@@ -25,3 +25,4 @@ dependencies:
   - bioconductor-annotationdbi
   - bioconductor-ensdb.hsapiens.v86
   - r-signac  
+  - bioconductor-biovizbase
