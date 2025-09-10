@@ -100,10 +100,7 @@ rule create_seurat_object:
     """
     conda: "../envs/seurat.yaml"
     input:
-       expand("{out_root}/{sample}/.cellranger_done",
-           out_root=OUT_ROOT, sample=SAMPLES)
-           
-
+        done = f"{OUT_ROOT}/{{sample}}/.cellranger_done"
     output:
         rds=f"{OUT_ROOT}" + "/seurat_objects/{sample}.rds"
     params:
@@ -122,6 +119,10 @@ rule create_seurat_object:
           echo "snake_outs: {params.snake_outs}"
           echo "OUTPUT_RDS: {output.rds}"
           echo
+
+          which Rscript
+          Rscript -e 'cat("R.home(): ", R.home(), "\n"); cat(".libPaths():\n"); print(.libPaths())'
+          Rscript workflows/scripts/install_signac_if_needed.R
 
           Rscript workflows/scripts/create_seurat_object.R \
             --snake_outs="{params.snake_outs}" \
