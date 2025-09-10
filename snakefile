@@ -101,7 +101,7 @@ rule create_seurat_object:
     input:
        expand("{out_root}/{sample}/.cellranger_done",
            out_root=OUT_ROOT, sample=SAMPLES)
-
+           
 
     output:
         rds=f"{OUT_ROOT}" + "/seurat_objects/{sample}.rds"
