@@ -13,7 +13,7 @@ def seurat_input_paths(sample):
 
 rule all:
     input:
-        rds=f"{OUT_ROOT}" + "/seurat_objects/{sample}.rds"
+        expand(f"{OUT_ROOT}/seurat_objects/{{sample}}.rds", sample=SAMPLES)
 
 
 rule cellranger_count:
