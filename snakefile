@@ -114,20 +114,21 @@ rule create_seurat_object:
         mkdir -p "{OUT_ROOT}/seurat_objects" "$(dirname "{log.run}")"
 
         (
-          echo "==== create_seurat_object START $(date) ===="
-          echo "SAMPLE: {wildcards.sample}"
-          echo "snake_outs: {params.snake_outs}"
-          echo "OUTPUT_RDS: {output.rds}"
-          echo
+        echo "==== create_seurat_object START $(date) ===="
+        echo "SAMPLE: {wildcards.sample}"
+        echo "snake_outs: {params.snake_outs}"
+        echo "OUTPUT_RDS: {output.rds}"
+        echo
 
-          which Rscript
-          Rscript -e 'cat("R.home(): ", R.home(), "\n"); cat(".libPaths():\n"); print(.libPaths())'
-          Rscript workflows/scripts/install_signac_if_needed.R
+        # Show the conda rule's R
+        which Rscript
+        Rscript -e 'cat("R.home(): ", R.home(), "\n"); cat(".libPaths():\n"); print(.libPaths())'
+        Rscript -e 'library(Signac); cat("Signac version: ", as.character(packageVersion("Signac")), "\n")'
 
-          Rscript workflows/scripts/create_seurat_object.R \
+        Rscript workflows/scripts/create_seurat_object.R \
             --snake_outs="{params.snake_outs}" \
             --output_rds="{output.rds}"
 
-          echo "==== create_seurat_object END $(date) ===="
+        echo "==== create_seurat_object END $(date) ===="
         ) &> "{log.run}"
         """

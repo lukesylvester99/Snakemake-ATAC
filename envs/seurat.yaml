@@ -1,21 +1,17 @@
-# workflows/envs/seurat.yaml
 name: seurat-signac
 channels:
   - conda-forge
   - bioconda
   - defaults
 dependencies:
-  # R + core deps
   - r-base>=4.3
+  - r-seurat>=5.0
+  - r-hdf5r
   - r-ggplot2
   - r-data.table
   - r-dplyr
   - r-tidyr
   - r-readr
-
-  # Seurat + friends
-  - r-seurat>=5.0
-  - r-hdf5r
   - r-patchwork
   - r-future
   - r-irlba
@@ -23,21 +19,9 @@ dependencies:
   - r-rcppannoy
   - r-matrix
   - r-matrixstats
-
-  # Bioc packages Signac/Seurat ATAC pipelines lean on
-  - bioconductor-genomeinfodb
   - bioconductor-genomicranges
+  - bioconductor-genomeinfodb
   - bioconductor-ensembldb
   - bioconductor-annotationdbi
   - bioconductor-ensdb.hsapiens.v86
-
-  # To install Signac from GitHub at runtime (since there’s no conda pkg)
-  - r-remotes
-  - git
-
-  # Toolchain/libs commonly needed to build small R deps if required
-  - pkg-config
-  - make
-  - libcurl
-  - openssl
-  - zlib
+  - r-signac  
