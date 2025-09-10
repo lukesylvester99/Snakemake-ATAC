@@ -1,6 +1,8 @@
 configfile: "config.yaml"
 workdir: "../.."
 
+#-------- Load config variables --------#
+
 SAMPLES     = config["samples"]            
 FASTQ_ROOT = config["path_to_fastqs"]         
 OUT_ROOT    = config["out_root"]           
@@ -8,9 +10,11 @@ REFERENCE   = config["reference"]
 SEURAT_INPUTS = config["seurat_inputs"]
 LOG_ROOT = config["log_dir"]
 
-def seurat_input_paths(sample):
+def seurat_input_paths(sample): #helper function to get full paths to seurat input files. Called in cellranger_count and create_seurat_object rules
     return [f"{OUT_ROOT}/{sample}/outs/{fname}" for fname in SEURAT_INPUTS]
 
+
+#-------- Rules --------#
 rule all:
     input:
         expand(f"{OUT_ROOT}/seurat_objects/{{sample}}.rds", sample=SAMPLES)
