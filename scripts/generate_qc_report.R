@@ -54,9 +54,13 @@ if (!"peaks" %in% Assays(seurat_obj)) {
 }
 DefaultAssay(seurat_obj) <- "peaks"
 
-frag_path <- Fragments(seurat_obj, assay = "peaks") #check that fragments file is attached to object
-if (length(frag_path) == 0 || !file.exists(Signac::Path(frags[[1]]))) {
-  stop("Fragments file not attached or missing. Ensure create_seurat_object.R set 'fragments='.", call. = FALSE)
+frags <- Fragments(seurat_obj, assay = "peaks")
+if (length(frags) == 0) {
+  stop("No fragment objects attached to assay 'peaks'.", call. = FALSE)
+}
+frag_path <- frags[[1]]@path  
+if (is.null(frag_path) || !nzchar(frag_path) || !file.exists(frag_path)) {
+  stop(sprintf("Fragments file missing or not found at: %s", as.character(frag_path)), call. = FALSE)
 }
 
 # ---------- Open a PDF device ----------

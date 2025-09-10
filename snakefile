@@ -154,7 +154,7 @@ rule qc_metrics:
     output:
         pdf     = f"{OUT_ROOT}" + "/qc_reports/{sample}_qc_report.pdf",
         cleaned = f"{OUT_ROOT}" + "/seurat_objects_clean/{sample}_filtered_cells.rds"
-    threads: 2
+    threads: 6
     log:
         run = f"{LOG_ROOT}" + "/qc_metrics/{sample}.log"
     shell:
