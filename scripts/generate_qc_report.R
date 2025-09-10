@@ -85,10 +85,11 @@ on.exit({
 # ---------------------------------------------------
 print_text_page <- function(title, lines) {
   op <- par(no.readonly = TRUE); on.exit(par(op), add = TRUE)
-  par(mar = c(1.5, 1.5, 3.5, 1.5))  # enlarge top margin
+  par(mar = c(1.5, 1.5, 3.5, 1.5))  # extra top margin
   plot.new()
   title(main = title, cex.main = 1.2, line = 1)
-  txt <- paste(lines, collapse = "\n")
+  # Add leading newlines so stats don’t overlap the title
+  txt <- paste(c("", "", lines), collapse = "\n")
   mtext(txt, side = 3, adj = 0, line = -0.5, cex = 0.8, family = "mono")
 }
 
@@ -131,15 +132,23 @@ print(p_tss)
 tss_vals <- seurat_obj$TSS.enrichment
 ncount   <- seurat_obj$nCount_peaks
 tss_stats <- c(
+    sprintf("QC cutoffs: TSS.enrichment > %d", CUT_TSS_MIN),
+   "",
+   "",
   "TSS.enrichment (summary):",
   capture.output(summary(tss_vals)),
   "",
+"",
   "TSS.enrichment (deciles):",
   capture.output(quantile(tss_vals, probs = seq(0, 1, 0.1), na.rm = TRUE))
 )
 ncount_stats <- c(
+    sprintf("QC cutoffs: %d < nCount_peaks < %d", CUT_NCOUNT_MIN, CUT_NCOUNT_MAX),
+  "",
+  "",
   "nCount_peaks (summary):",
   capture.output(summary(ncount)),
+  "",
   "",
   "nCount_peaks (deciles):",
   capture.output(quantile(ncount, probs = seq(0, 1, 0.1), na.rm = TRUE))
@@ -161,8 +170,12 @@ print(p_frag_hist)
 
 ns_vals <- seurat_obj$nucleosome_signal
 ns_stats <- c(
+    sprintf("QC cutoff: nucleosome_signal < %g", CUT_NS_MAX),
+    "",
+    "",
   "nucleosome_signal (summary):",
   capture.output(summary(ns_vals)),
+  "",
   "",
   "nucleosome_signal (deciles):",
   capture.output(quantile(ns_vals, probs = seq(0, 1, 0.1), na.rm = TRUE))
@@ -191,8 +204,12 @@ abline(v = CUT_FRIP_MIN, lty = 2)
 
 frip_vals <- seurat_obj$pct_reads_in_peaks
 frip_stats <- c(
+   sprintf("QC cutoff: pct_reads_in_peaks > %d%%", CUT_FRIP_MIN),
+  "",
+  "",
   "pct_reads_in_peaks (summary):",
   capture.output(summary(frip_vals)),
+  "",
   "",
   "pct_reads_in_peaks (deciles):",
   capture.output(quantile(frip_vals, probs = seq(0, 1, 0.1), na.rm = TRUE))
@@ -220,9 +237,13 @@ abline(v = CUT_BL_MAX, lty = 2)
 
 bl_vals <- seurat_obj$blacklist_ratio
 bl_stats <- c(
+    sprintf("QC cutoff: blacklist_ratio < %.2f", CUT_BL_MAX),
+  "",
+  "",
   "blacklist_ratio (summary):",
   capture.output(summary(bl_vals)),
   "",
+"",
   "blacklist_ratio (deciles):",
   capture.output(quantile(bl_vals, probs = seq(0, 1, 0.1), na.rm = TRUE))
 )
