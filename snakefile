@@ -98,7 +98,7 @@ rule create_seurat_object:
         Object will be loaded with all necessary matrices, metadata, and annotations.
         Object will be saved as an RDS file.
     """
-    conda: "workflows/envs/seurat.yaml"
+    conda: "../envs/seurat.yaml"
     input:
        expand("{out_root}/{sample}/.cellranger_done",
            out_root=OUT_ROOT, sample=SAMPLES)
