@@ -28,7 +28,7 @@ CUT_NCOUNT_MIN <- 1000
 CUT_NCOUNT_MAX <- 100000
 CUT_TSS_MIN    <- 4
 CUT_NS_MAX     <- 4
-CUT_FRIP_MIN   <- 20       # percent
+CUT_PTC_MIN   <- 20       # percent
 CUT_BL_MAX     <- 0.05     # fraction
 
 # -----------------
@@ -102,6 +102,28 @@ print_text_page <- function(title, lines, lines_per_page = 40, body_top = 0.82, 
   }
 }
 
+# -------------------------------------------------------------
+# Helper: Percent pass/fail stats
+# -------------------------------------------------------------
+
+pass_stats <- function(values, pass_logical) {
+  n_total <- sum(!is.na(values))
+  n_pass  <- sum(pass_logical, na.rm = TRUE)
+  n_fail  <- n_total - n_pass
+  n_na    <- sum(is.na(values))
+  pct     <- if (n_total > 0) 100 * n_pass / n_total else NA_real_
+  list(n_total = n_total, n_pass = n_pass, n_fail = n_fail, n_na = n_na, pct = pct)
+}
+
+fmt_pass_line <- function(label, s, detail = TRUE) {
+  base <- sprintf("%-22s: %5.1f%% pass", label, s$pct)
+  if (detail) {
+    paste0(base, sprintf("  (n=%d / N=%d; NA=%d)", s$n_pass, s$n_total, s$n_na))
+  } else {
+    base
+  }
+}
+
 # ----------------------
 # Object summary page
 # ----------------------
@@ -112,8 +134,8 @@ print_text_page(
     paste("Peaks:", nrow(seurat_obj)),
     paste("Fragments file:", basename(frag_path)),
     "",
-    sprintf("QC thresholds: nCount_peaks in (%d, %d), TSS > %g, NS < %g, FRIP > %d%%, Blacklist < %.2f",
-            CUT_NCOUNT_MIN, CUT_NCOUNT_MAX, CUT_TSS_MIN, CUT_NS_MAX, CUT_FRIP_MIN, CUT_BL_MAX)
+    sprintf("QC thresholds: nCount_peaks in (%d, %d), TSS > %g, NS < %g, PTC > %d%%, Blacklist < %.2f",
+            CUT_NCOUNT_MIN, CUT_NCOUNT_MAX, CUT_TSS_MIN, CUT_NS_MAX, CUT_PTC_MIN, CUT_BL_MAX)
   )
 )
 
@@ -174,10 +196,10 @@ seurat_obj$pct_reads_in_peaks <- with(
 hist(
   seurat_obj$pct_reads_in_peaks,
   breaks = 60,
-  main = sprintf("Percent Reads in Peaks per Cell (cutoff = %d%%)", CUT_FRIP_MIN),
+  main = sprintf("Percent Reads in Peaks per Cell (cutoff = %d%%)", CUT_PTC_MIN),
   xlab  = "Percent"
 )
-abline(v = CUT_FRIP_MIN, lty = 2)
+abline(v = CUT_PTC_MIN, lty = 2)
 
 ptc_vals <- seurat_obj$pct_reads_in_peaks
 
@@ -202,6 +224,27 @@ abline(v = CUT_BL_MAX, lty = 2)
 
 bl_vals <- seurat_obj$blacklist_ratio
 
+
+# ----- Pass/fail per metric -----
+pass_ncount <- (ncount > CUT_NCOUNT_MIN) & (ncount < CUT_NCOUNT_MAX)
+pass_tss    <- (tss_vals > CUT_TSS_MIN)
+pass_ns     <- (ns_vals  < CUT_NS_MAX)
+pass_ptc   <- (ptc_vals > CUT_PTC_MIN)
+pass_bl     <- (bl_vals  < CUT_BL_MAX)
+
+s_ncount <- pass_stats(ncount,   pass_ncount)
+s_tss    <- pass_stats(tss_vals, pass_tss)
+s_ns     <- pass_stats(ns_vals,  pass_ns)
+s_ptc   <- pass_stats(ptc_vals,pass_ptc)
+s_bl     <- pass_stats(bl_vals,  pass_bl)
+
+# Overall: all criteria simultaneously (NA-safe “and”)
+all_mat <- cbind(pass_ncount, pass_tss, pass_ns, pass_ptc, pass_bl)
+row_ok  <- apply(all_mat, 1, function(x) all(x %in% TRUE))  # FALSE if any criterion FALSE; NA if any NA
+overall_values <- ifelse(rowSums(!is.na(all_mat)) == ncol(all_mat), TRUE, NA)  # marks rows with complete data
+s_overall <- pass_stats(overall_values, row_ok)
+
+
 # -----------------------------------------
 # ONE summary page with all percentiles
 # -----------------------------------------
@@ -218,7 +261,7 @@ summary_lines <- c(
   sprintf("  - nCount_peaks: %d < x < %d", CUT_NCOUNT_MIN, CUT_NCOUNT_MAX),
   sprintf("  - TSS.enrichment: x > %g", CUT_TSS_MIN),
   sprintf("  - nucleosome_signal: x < %g", CUT_NS_MAX),
-  sprintf("  - pct_reads_in_peaks: x > %d%%", CUT_FRIP_MIN),
+  sprintf("  - pct_reads_in_peaks: x > %d%%", CUT_PTC_MIN),
   sprintf("  - blacklist_ratio: x < %.2f", CUT_BL_MAX)
 )
 
@@ -239,6 +282,23 @@ print_text_page("QC Summary", summary_lines, lines_per_page = 38)
 
 message("QC report written: ", output_pdf)
 
+
+print_text_page(
+  "QC Threshold Pass Rates",
+  c(
+    sprintf("Cutoffs:  nCount_peaks (%d, %d),  TSS > %g,  NS < %g,  PTC > %d%%,  Blacklist < %.2f",
+            CUT_NCOUNT_MIN, CUT_NCOUNT_MAX, CUT_TSS_MIN, CUT_NS_MAX, CUT_PTC_MIN, CUT_BL_MAX),
+    "",
+    fmt_pass_line("nCount_peaks",       s_ncount),
+    fmt_pass_line("TSS.enrichment",     s_tss),
+    fmt_pass_line("nucleosome_signal",  s_ns),
+    fmt_pass_line("pct_reads_in_peaks", s_ptc),
+    fmt_pass_line("blacklist_ratio",    s_bl),
+    "",
+    fmt_pass_line("ALL criteria",       s_overall)
+  )
+)
+
 # -----------------------------------------
 # Filtering: apply thresholds, save object
 # -----------------------------------------
@@ -247,7 +307,7 @@ filtered_cells <- subset(
   subset =
     nCount_peaks > CUT_NCOUNT_MIN &
     nCount_peaks < CUT_NCOUNT_MAX &
-    pct_reads_in_peaks > CUT_FRIP_MIN &
+    pct_reads_in_peaks > CUT_PTC_MIN &
     blacklist_ratio < CUT_BL_MAX &
     nucleosome_signal < CUT_NS_MAX &
     TSS.enrichment > CUT_TSS_MIN
@@ -256,22 +316,6 @@ filtered_cells <- subset(
 # Record the sample name inside the object (from the filename)
 sample_id <- sub("_filtered_cells\\.rds$", "", basename(output_rds))
 filtered_cells@misc$sample_id <- sample_id
-
-# ---- Retention summary page (cells kept vs removed) ----
-n_unf <- ncol(seurat_obj)
-n_fil <- ncol(filtered_cells)
-n_rm  <- n_unf - n_fil
-pct_rm <- if (n_unf > 0) round(100 * n_rm / n_unf, 2) else NA_real_
-
-print_text_page(
-  "QC Retention Summary",
-  c(
-    sprintf("Unfiltered cells: %d", n_unf),
-    sprintf("Filtered cells:   %d", n_fil),
-    "",
-    sprintf("Removed:          %d (%.2f%%)", n_rm, pct_rm)
-  )
-)
 
 # Save cleaned object
 dir.create(dirname(output_rds), showWarnings = FALSE, recursive = TRUE)
