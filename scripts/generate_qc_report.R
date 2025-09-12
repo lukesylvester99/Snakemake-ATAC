@@ -188,13 +188,11 @@ message("Computing pct_reads_in_peaks…")
 if (!all(c("peak_region_fragments", "passed_filters") %in% colnames(seurat_obj[[]]))) {
   warning("Metadata missing 'peak_region_fragments' or 'passed_filters'. Percent reads in peaks will be NA where missing.")
 }
-md <- seurat_obj@meta.data
 
-if ("mitochondrial" %in% names(md)) {
-
-  denom_non_mito <- md$passed_filters - md$mitochondrial
-  seurat_obj$pct_reads_in_peaks <- 100 * (md$peak_region_fragments / denom_non_mito)
-}
+seurat_obj$pct_reads_in_peaks <- with(
+  seurat_obj@meta.data,
+  100 * (peak_region_fragments / pmax(passed_filters, 1))
+)
 
 
 hist(
