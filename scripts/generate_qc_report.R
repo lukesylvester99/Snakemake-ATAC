@@ -7,7 +7,7 @@ suppressPackageStartupMessages({
   library(GenomicRanges)
   library(EnsDb.Hsapiens.v86)
   library(ggplot2)
-  library(grid)   # for optional table/text pages if needed later
+  library(grid)
 })
 
 # -----------------------------
@@ -18,12 +18,12 @@ theme_set(
     theme(
       plot.title = element_text(face = "bold", size = 14, margin = margin(b = 10)),
       axis.title = element_text(size = 12),
-      plot.margin = margin(10, 12, 10, 12),
+      plot.margin = margin(30, 12, 10, 12),
       panel.grid.minor = element_blank()
     )
 )
 
-# QC threshold constants (easy to tweak)
+# QC thresholds 
 CUT_NCOUNT_MIN <- 1000
 CUT_NCOUNT_MAX <- 100000
 CUT_TSS_MIN    <- 4
@@ -66,31 +66,40 @@ frags <- Fragments(seurat_obj, assay = "peaks")
 if (length(frags) == 0) {
   stop("No fragment objects attached to assay 'peaks'.", call. = FALSE)
 }
-frag_path <- frags[[1]]@path  # Path() accessor not exported in Signac 1.15.0
+frag_path <- frags[[1]]@path  # Path() not exported in Signac 1.15.0
 if (is.null(frag_path) || !nzchar(frag_path) || !file.exists(frag_path)) {
   stop(sprintf("Fragments file missing or not found at: %s", as.character(frag_path)), call. = FALSE)
 }
 
-# -----------------------------
-# Open PDF (safe close on exit)
-# -----------------------------
+# ----------
+# Open PDF 
+# ----------
 dir.create(dirname(output_pdf), showWarnings = FALSE, recursive = TRUE)
 pdf(file = output_pdf, width = 8.5, height = 11, pointsize = 12)
-on.exit({
-  try(dev.off(), silent = TRUE)
-}, add = TRUE)
+on.exit({ try(dev.off(), silent = TRUE) }, add = TRUE)
 
-# ---------------------------------------------------
-# Helper: text page with sane margins (no overlap)
-# ---------------------------------------------------
-print_text_page <- function(title, lines) {
-  op <- par(no.readonly = TRUE); on.exit(par(op), add = TRUE)
-  par(mar = c(1.5, 1.5, 3.5, 1.5))  # extra top margin
-  plot.new()
-  title(main = title, cex.main = 1.2, line = 1)
-  # Add leading newlines so stats don’t overlap the title
-  txt <- paste(c("", "", lines), collapse = "\n")
-  mtext(txt, side = 3, adj = 0, line = -0.5, cex = 0.8, family = "mono")
+# -------------------------------------------------------------
+# Helper: settings for text page with summary statistics of QC
+# -------------------------------------------------------------
+print_text_page <- function(title, lines, lines_per_page = 40, body_top = 0.82, left = 0.04) {
+  n <- length(lines)
+  if (n == 0) lines <- ""
+  pages <- ceiling(n / lines_per_page)
+  for (i in seq_len(pages)) {
+    i_start <- (i - 1) * lines_per_page + 1
+    i_end   <- min(i * lines_per_page, n)
+    chunk   <- lines[i_start:i_end]
+
+    grid::grid.newpage()
+    # Title (append page x/y if multiple pages)
+    page_title <- if (pages > 1) sprintf("%s  —  page %d/%d", title, i, pages) else title
+    grid::grid.text(page_title, x = 0.5, y = 0.95,
+                    gp = grid::gpar(fontface = "bold", cex = 1.2))
+    # Body
+    grid::grid.text(paste(chunk, collapse = "\n"),
+                    x = left, y = body_top, just = c("left","top"),
+                    gp = grid::gpar(cex = 0.8, family = "mono"))
+  }
 }
 
 # ----------------------
@@ -101,7 +110,10 @@ print_text_page(
   c(
     paste("Cells:", ncol(seurat_obj)),
     paste("Peaks:", nrow(seurat_obj)),
-    paste("Fragments file:", basename(frag_path))
+    paste("Fragments file:", basename(frag_path)),
+    "",
+    sprintf("QC thresholds: nCount_peaks in (%d, %d), TSS > %g, NS < %g, FRIP > %d%%, Blacklist < %.2f",
+            CUT_NCOUNT_MIN, CUT_NCOUNT_MAX, CUT_TSS_MIN, CUT_NS_MAX, CUT_FRIP_MIN, CUT_BL_MAX)
   )
 )
 
@@ -126,65 +138,30 @@ p_tss <- DensityScatter(
   coord_cartesian(
     ylim = c(0, max(CUT_TSS_MIN * 1.5, quantile(seurat_obj$TSS.enrichment, 0.99, na.rm = TRUE)))
   )
-
 print(p_tss)
 
+# capture vectors for later summary
 tss_vals <- seurat_obj$TSS.enrichment
 ncount   <- seurat_obj$nCount_peaks
-tss_stats <- c(
-    sprintf("QC cutoffs: TSS.enrichment > %d", CUT_TSS_MIN),
-   "",
-   "",
-  "TSS.enrichment (summary):",
-  capture.output(summary(tss_vals)),
-  "",
-"",
-  "TSS.enrichment (deciles):",
-  capture.output(quantile(tss_vals, probs = seq(0, 1, 0.1), na.rm = TRUE))
-)
-ncount_stats <- c(
-    sprintf("QC cutoffs: %d < nCount_peaks < %d", CUT_NCOUNT_MIN, CUT_NCOUNT_MAX),
-  "",
-  "",
-  "nCount_peaks (summary):",
-  capture.output(summary(ncount)),
-  "",
-  "",
-  "nCount_peaks (deciles):",
-  capture.output(quantile(ncount, probs = seq(0, 1, 0.1), na.rm = TRUE))
-)
-print_text_page("Summary: TSS & nCount_peaks", c(tss_stats, "", ncount_stats))
 
 # -----------------------
 # Nucleosome signal
 # -----------------------
 message("Computing nucleosome signal…")
 seurat_obj <- NucleosomeSignal(seurat_obj)
-
 seurat_obj$nucleosome_group <- ifelse(seurat_obj$nucleosome_signal > CUT_NS_MAX, "NS > cutoff", "NS ≤ cutoff")
+
 p_frag_hist <- FragmentHistogram(object = seurat_obj, group.by = "nucleosome_group") +
   ggtitle(sprintf("Fragment Size Distribution by Nucleosome Signal (cutoff = %g)", CUT_NS_MAX)) +
   theme(legend.position = "top")
-
 print(p_frag_hist)
 
+# capture vectors for later summary
 ns_vals <- seurat_obj$nucleosome_signal
-ns_stats <- c(
-    sprintf("QC cutoff: nucleosome_signal < %g", CUT_NS_MAX),
-    "",
-    "",
-  "nucleosome_signal (summary):",
-  capture.output(summary(ns_vals)),
-  "",
-  "",
-  "nucleosome_signal (deciles):",
-  capture.output(quantile(ns_vals, probs = seq(0, 1, 0.1), na.rm = TRUE))
-)
-print_text_page("Summary: Nucleosome signal", ns_stats)
 
-# -------------------------------
-# Percent reads in peaks (FRIP)
-# -------------------------------
+# -----------------------
+# Percent reads in peaks 
+# ------------------------
 message("Computing pct_reads_in_peaks…")
 if (!all(c("peak_region_fragments", "passed_filters") %in% colnames(seurat_obj[[]]))) {
   warning("Metadata missing 'peak_region_fragments' or 'passed_filters'. Percent reads in peaks will be NA where missing.")
@@ -202,19 +179,7 @@ hist(
 )
 abline(v = CUT_FRIP_MIN, lty = 2)
 
-frip_vals <- seurat_obj$pct_reads_in_peaks
-frip_stats <- c(
-   sprintf("QC cutoff: pct_reads_in_peaks > %d%%", CUT_FRIP_MIN),
-  "",
-  "",
-  "pct_reads_in_peaks (summary):",
-  capture.output(summary(frip_vals)),
-  "",
-  "",
-  "pct_reads_in_peaks (deciles):",
-  capture.output(quantile(frip_vals, probs = seq(0, 1, 0.1), na.rm = TRUE))
-)
-print_text_page("Summary: FRIP (pct_reads_in_peaks)", frip_stats)
+ptc_vals <- seurat_obj$pct_reads_in_peaks
 
 # -----------------------
 # Blacklist fraction
@@ -236,18 +201,41 @@ hist(
 abline(v = CUT_BL_MAX, lty = 2)
 
 bl_vals <- seurat_obj$blacklist_ratio
-bl_stats <- c(
-    sprintf("QC cutoff: blacklist_ratio < %.2f", CUT_BL_MAX),
-  "",
-  "",
-  "blacklist_ratio (summary):",
-  capture.output(summary(bl_vals)),
-  "",
-"",
-  "blacklist_ratio (deciles):",
-  capture.output(quantile(bl_vals, probs = seq(0, 1, 0.1), na.rm = TRUE))
+
+# -----------------------------------------
+# ONE summary page with all percentiles
+# -----------------------------------------
+fmt_quantiles <- function(x, label, probs = seq(0, 1, 0.1)) {
+  q <- quantile(x, probs = probs, na.rm = TRUE)
+  c(
+    label,
+    paste(names(q), sprintf("= %.3f", as.numeric(q)))
+  )
+}
+
+summary_lines <- c(
+  sprintf("QC thresholds:"),
+  sprintf("  - nCount_peaks: %d < x < %d", CUT_NCOUNT_MIN, CUT_NCOUNT_MAX),
+  sprintf("  - TSS.enrichment: x > %g", CUT_TSS_MIN),
+  sprintf("  - nucleosome_signal: x < %g", CUT_NS_MAX),
+  sprintf("  - pct_reads_in_peaks: x > %d%%", CUT_FRIP_MIN),
+  sprintf("  - blacklist_ratio: x < %.2f", CUT_BL_MAX)
 )
-print_text_page("Summary: Blacklist fraction", bl_stats)
+
+summary_lines <- c(
+  summary_lines,
+  fmt_quantiles(ncount,   "nCount_peaks:"),
+  "",
+  fmt_quantiles(tss_vals, "TSS.enrichment:"),
+  "",
+  fmt_quantiles(ns_vals,  "nucleosome_signal:"),
+  "",
+  fmt_quantiles(ptc_vals,"pct_reads_in_peaks:"),
+  "",
+  fmt_quantiles(bl_vals,  "blacklist_ratio:")
+)
+
+print_text_page("QC Summary", summary_lines, lines_per_page = 38)
 
 message("QC report written: ", output_pdf)
 
@@ -268,6 +256,22 @@ filtered_cells <- subset(
 # Record the sample name inside the object (from the filename)
 sample_id <- sub("_filtered_cells\\.rds$", "", basename(output_rds))
 filtered_cells@misc$sample_id <- sample_id
+
+# ---- Retention summary page (cells kept vs removed) ----
+n_unf <- ncol(seurat_obj)
+n_fil <- ncol(filtered_cells)
+n_rm  <- n_unf - n_fil
+pct_rm <- if (n_unf > 0) round(100 * n_rm / n_unf, 2) else NA_real_
+
+print_text_page(
+  "QC Retention Summary",
+  c(
+    sprintf("Unfiltered cells: %d", n_unf),
+    sprintf("Filtered cells:   %d", n_fil),
+    "",
+    sprintf("Removed:          %d (%.2f%%)", n_rm, pct_rm)
+  )
+)
 
 # Save cleaned object
 dir.create(dirname(output_rds), showWarnings = FALSE, recursive = TRUE)
