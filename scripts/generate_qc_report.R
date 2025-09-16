@@ -29,6 +29,7 @@ CUT_NCOUNT_MAX <- 100000
 CUT_TSS_MIN    <- 4
 CUT_NS_MAX     <- 4
 CUT_PTC_MIN   <- 20       # percent
+CUT_DNASE_MIN <- 40      # percent
 CUT_BL_MAX     <- 0.05     # fraction
 
 # -----------------
@@ -134,8 +135,8 @@ print_text_page(
     paste("Peaks:", nrow(seurat_obj)),
     paste("Fragments file:", basename(frag_path)),
     "",
-    sprintf("QC thresholds: nCount_peaks in (%d, %d), TSS > %g, NS < %g, PTC > %d%%, Blacklist < %.2f",
-            CUT_NCOUNT_MIN, CUT_NCOUNT_MAX, CUT_TSS_MIN, CUT_NS_MAX, CUT_PTC_MIN, CUT_BL_MAX)
+    sprintf("QC thresholds: nCount_peaks in (%d, %d), TSS > %g, NS < %g, PTC > %d%%, DNase > %d%%, Blacklist < %.2f",
+        CUT_NCOUNT_MIN, CUT_NCOUNT_MAX, CUT_TSS_MIN, CUT_NS_MAX, CUT_PTC_MIN, CUT_DNASE_MIN, CUT_BL_MAX)
   )
 )
 
@@ -194,6 +195,8 @@ seurat_obj$pct_reads_in_peaks <- with(
   100 * (peak_region_fragments / pmax(passed_filters, 1))
 )
 
+seurat_obj$pct_reads_in_DNase <- seurat_obj$DNase_sensitive_region_fragments / seurat_obj$passed_filters * 100
+
 
 hist(
   seurat_obj$pct_reads_in_peaks,
@@ -204,6 +207,22 @@ hist(
 abline(v = CUT_PTC_MIN, lty = 2)
 
 ptc_vals <- seurat_obj$pct_reads_in_peaks
+
+# ---- DNase percent histogram ----
+dnase_vals <- seurat_obj$pct_reads_in_DNase
+
+# (Optional) clip just for plotting so extreme outliers don't crush the axis
+dnase_plot <- pmin(pmax(dnase_vals, 0), 100)
+ok <- is.finite(dnase_plot)
+
+hist(
+  dnase_plot[ok],
+  breaks = 60,
+  main = sprintf("Percent Reads in DNase (cutoff = %d%%)", CUT_DNASE_MIN),
+  xlab  = "Percent"
+)
+abline(v = CUT_DNASE_MIN, lty = 2)
+
 
 # -----------------------
 # Blacklist fraction
@@ -233,15 +252,17 @@ pass_tss    <- (tss_vals > CUT_TSS_MIN)
 pass_ns     <- (ns_vals  < CUT_NS_MAX)
 pass_ptc   <- (ptc_vals > CUT_PTC_MIN)
 pass_bl     <- (bl_vals  < CUT_BL_MAX)
+pass_dnase  <- (dnase_vals > CUT_DNASE_MIN)
 
 s_ncount <- pass_stats(ncount,   pass_ncount)
 s_tss    <- pass_stats(tss_vals, pass_tss)
 s_ns     <- pass_stats(ns_vals,  pass_ns)
 s_ptc   <- pass_stats(ptc_vals,pass_ptc)
 s_bl     <- pass_stats(bl_vals,  pass_bl)
+s_dnase <- pass_stats(dnase_vals, pass_dnase)
 
 # Overall: all criteria simultaneously (NA-safe “and”)
-all_mat <- cbind(pass_ncount, pass_tss, pass_ns, pass_ptc, pass_bl)
+all_mat <- cbind(pass_ncount, pass_tss, pass_ns, pass_ptc, pass_bl, pass_dnase)
 row_ok  <- apply(all_mat, 1, function(x) all(x %in% TRUE))  # FALSE if any criterion FALSE; NA if any NA
 overall_values <- ifelse(rowSums(!is.na(all_mat)) == ncol(all_mat), TRUE, NA)  # marks rows with complete data
 s_overall <- pass_stats(overall_values, row_ok)
@@ -264,6 +285,7 @@ summary_lines <- c(
   sprintf("  - TSS.enrichment: x > %g", CUT_TSS_MIN),
   sprintf("  - nucleosome_signal: x < %g", CUT_NS_MAX),
   sprintf("  - pct_reads_in_peaks: x > %d%%", CUT_PTC_MIN),
+  sprintf("  - pct_reads_in_DNase: x > %d%%", CUT_DNASE_MIN),
   sprintf("  - blacklist_ratio: x < %.2f", CUT_BL_MAX)
 )
 
@@ -277,7 +299,8 @@ summary_lines <- c(
   "",
   fmt_quantiles(ptc_vals,"pct_reads_in_peaks:"),
   "",
-  fmt_quantiles(bl_vals,  "blacklist_ratio:")
+  fmt_quantiles(bl_vals,  "blacklist_ratio:"),
+  fmt_quantiles(dnase_vals, "pct_reads_in_DNase:")
 )
 
 print_text_page("QC Summary", summary_lines, lines_per_page = 38)
@@ -288,13 +311,15 @@ message("QC report written: ", output_pdf)
 print_text_page(
   "QC Threshold Pass Rates",
   c(
-    sprintf("Cutoffs:  nCount_peaks (%d, %d),  TSS > %g,  NS < %g,  PTC > %d%%,  Blacklist < %.2f",
-            CUT_NCOUNT_MIN, CUT_NCOUNT_MAX, CUT_TSS_MIN, CUT_NS_MAX, CUT_PTC_MIN, CUT_BL_MAX),
+    sprintf("QC thresholds: nCount_peaks in (%d, %d), TSS > %g, NS < %g, PTC > %d%%, DNase > %d%%, Blacklist < %.2f",
+        CUT_NCOUNT_MIN, CUT_NCOUNT_MAX, CUT_TSS_MIN, CUT_NS_MAX, CUT_PTC_MIN, CUT_DNASE_MIN, CUT_BL_MAX),
+
     "",
     fmt_pass_line("nCount_peaks",       s_ncount),
     fmt_pass_line("TSS.enrichment",     s_tss),
     fmt_pass_line("nucleosome_signal",  s_ns),
     fmt_pass_line("pct_reads_in_peaks", s_ptc),
+    fmt_pass_line("pct_reads_in_DNase", s_dnase),
     fmt_pass_line("blacklist_ratio",    s_bl),
     "",
     fmt_pass_line("ALL criteria",       s_overall)
@@ -309,7 +334,7 @@ filtered_cells <- subset(
   subset =
     nCount_peaks > CUT_NCOUNT_MIN &
     nCount_peaks < CUT_NCOUNT_MAX &
-    pct_reads_in_peaks > CUT_PTC_MIN &
+    pct_reads_in_DNase > CUT_DNASE_MIN &
     blacklist_ratio < CUT_BL_MAX &
     nucleosome_signal < CUT_NS_MAX &
     TSS.enrichment > CUT_TSS_MIN
