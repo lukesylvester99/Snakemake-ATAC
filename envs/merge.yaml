@@ -1,0 +1,51 @@
+name: seurat-signac
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  # R base
+  - r-base>=4.3
+
+  # Core analysis
+  - r-seurat>=5.0
+  - r-seuratobject 
+  - r-signac
+
+  # Normalization/embeddings/UMAP
+  - r-irlba
+  - r-uwot          
+  - r-rann        
+
+  # Batch correction
+  - r-harmony       
+
+  # CLI/options
+  - r-optparse
+
+  # IO / performance / plotting
+  - r-hdf5r
+  - r-data.table
+  - r-ggplot2
+  - r-dplyr
+  - r-tidyr
+  - r-readr
+  - r-patchwork
+  - r-future
+  - r-matrix
+  - r-matrixstats
+  - r-rcpp
+  - r-rcppannoy
+  - r-rcpparmadillo
+  - r-rcppprogress  
+
+  # Bioconductor genomics stack
+  - bioconductor-genomicranges
+  - bioconductor-iranges
+  - bioconductor-s4vectors
+  - bioconductor-genomeinfodb
+  - bioconductor-genomeinfodbdata 
+  - bioconductor-biovizbase
+  - bioconductor-annotationdbi
+  - bioconductor-ensembldb
+  - bioconductor-ensdb.hsapiens.v86

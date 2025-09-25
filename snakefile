@@ -1,7 +1,8 @@
 configfile: "config.yaml"
 workdir: "../.."
+from collections import defaultdict
 
-#-------- Load config variables --------#
+#-------- Load config variables and helper functions --------#
 
 SAMPLES     = config["samples"]            
 FASTQ_ROOT = config["path_to_fastqs"]         
@@ -14,16 +15,29 @@ LOG_ROOT = config["log_dir"]
 def seurat_input_paths(sample): 
     return [f"{OUT_ROOT}/{sample}/outs/{fname}" for fname in SEURAT_INPUTS]
 
+""" 
+    Following functions extract timepoint from sample name.
+    Assumes sample names are formatted as 'S1_1', 'S2_2', etc.
+    Returns the timepoint part, e.g., 'S1', 'S2'.
+    Called in the merge_timepoint rule.
+"""
+
+def timepoint_of(sample: str) -> str:
+    # Expects names like S1_1, S2_2, etc. Returns 'S1', 'S2', ...
+    return sample.split("_")[0]
+
+# Group replicates by timepoint
+TP_REPS = defaultdict(list)
+for s in SAMPLES:
+    TP_REPS[timepoint_of(s)].append(s)
+
+TIMEPOINTS = sorted(TP_REPS.keys())
 
 #-------- Rules --------#
 rule all:
     input:
-        # final QC reports
-        expand("{out_root}/qc_reports/{sample}_qc_report.pdf",
-               out_root=OUT_ROOT, sample=SAMPLES),
-        # final cleaned Seurat objects
-        expand("{out_root}/seurat_objects_clean/{sample}_filtered_cells.rds",
-               out_root=OUT_ROOT, sample=SAMPLES)
+         expand("{out_root}/seurat_objects_merged/{tp}_merged.rds",
+               out_root=OUT_ROOT, tp=TIMEPOINTS)
 
 
 rule cellranger_count:
@@ -176,5 +190,52 @@ rule qc_metrics:
             --output_rds="{output.cleaned}"
 
           echo "==== qc_metrics END $(date) ===="
+        ) &> "{log.run}"
+        """
+
+
+rule merge_timepoint:
+    """
+    Merge cleaned Seurat objects for replicates within each timepoint.
+    Produces one merged object per timepoint (e.g., S1_merged.rds).
+    """
+    conda: "../envs/merge.yaml"
+    input:
+        lambda wc: expand(
+            f"{OUT_ROOT}/seurat_objects_clean/{{s}}_filtered_cells.rds",
+            s=TP_REPS[wc.timepoint]
+        )
+    params:
+        # Build one --input_rds="..." flag per file (robust, no giant argv token)
+        input_flags=lambda wc: ' '.join(
+            f'--input_rds="{p}"'
+            for p in expand(
+                f"{OUT_ROOT}/seurat_objects_clean/{{s}}_filtered_cells.rds",
+                s=TP_REPS[wc.timepoint]
+            )
+        )
+    output:
+        merged = f"{OUT_ROOT}/seurat_objects_merged/{{timepoint}}_merged.rds"
+    threads: 6
+    log:
+        run = f"{LOG_ROOT}/merge/{{timepoint}}.log"
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p "{OUT_ROOT}/seurat_objects_merged" "$(dirname "{log.run}")"
+
+        (
+          echo "==== merge_timepoint START $(date) ===="
+          echo "TIMEPOINT: {wildcards.timepoint}"
+          echo "N_INPUTS: $(echo {input} | wc -w)"
+          for f in {input}; do echo "  - $f"; done
+          echo "OUTPUT_RDS (merged): {output.merged}"
+          echo
+
+          Rscript workflows/scripts/merge.R \
+            {params.input_flags} \
+            --output_rds="{output.merged}"
+
+          echo "==== merge_timepoint END $(date) ===="
         ) &> "{log.run}"
         """
