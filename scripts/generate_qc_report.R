@@ -66,7 +66,7 @@ frags <- Fragments(seurat_obj, assay = "peaks")
 if (length(frags) == 0) {
   stop("No fragment objects attached to assay 'peaks'.", call. = FALSE)
 }
-frag_path <- frags[[1]]@path  # Path() not exported in Signac 1.15.0
+frag_path <- frags[[1]]@path  
 if (is.null(frag_path) || !nzchar(frag_path) || !file.exists(frag_path)) {
   stop(sprintf("Fragments file missing or not found at: %s", as.character(frag_path)), call. = FALSE)
 }
@@ -124,6 +124,15 @@ fmt_pass_line <- function(label, s, detail = TRUE) {
   }
 }
 
+# -------------------------------------------------------------
+# Helper: compute dynamic cutoff for FRiP and TSS (1/3 quantile)
+# -------------------------------------------------------------
+dyn_cutoff <- function(x, p = 1/3) {
+  x <- x[is.finite(x)]
+  if (length(x) == 0) return(NA_real_)
+  as.numeric(quantile(x, probs = p, na.rm = TRUE))
+}
+
 # ----------------------
 # Object summary page
 # ----------------------
@@ -166,6 +175,9 @@ print(p_tss)
 tss_vals <- seurat_obj$TSS.enrichment
 ncount   <- seurat_obj$nCount_peaks
 
+DYN_TSS_MIN <- dyn_cutoff(tss_vals, p = 1/3)
+message(sprintf("Dynamic TSS cutoff (bottom third): %.3f", DYN_TSS_MIN))
+
 # -----------------------
 # Nucleosome signal
 # -----------------------
@@ -205,6 +217,11 @@ abline(v = CUT_PTC_MIN, lty = 2)
 
 ptc_vals <- seurat_obj$pct_reads_in_peaks
 
+# Dynamic FRiP cutoff = bottom third
+DYN_FRIP_MIN <- dyn_cutoff(ptc_vals, p = 1/3)
+message(sprintf("Dynamic FRiP cutoff (bottom third): %.3f%%", DYN_FRIP_MIN))
+
+
 # -----------------------
 # Blacklist fraction
 # -----------------------
@@ -229,9 +246,9 @@ bl_vals <- seurat_obj$blacklist_ratio
 
 # ----- Pass/fail per metric -----
 pass_ncount <- (ncount > CUT_NCOUNT_MIN) & (ncount < CUT_NCOUNT_MAX)
-pass_tss    <- (tss_vals > CUT_TSS_MIN)
+pass_tss    <- (tss_vals > DYN_TSS_MIN)
 pass_ns     <- (ns_vals  < CUT_NS_MAX)
-pass_ptc   <- (ptc_vals > CUT_PTC_MIN)
+pass_ptc   <- (ptc_vals > DYN_FRIP_MIN)
 pass_bl     <- (bl_vals  < CUT_BL_MAX)
 
 s_ncount <- pass_stats(ncount,   pass_ncount)
@@ -261,9 +278,9 @@ fmt_quantiles <- function(x, label, probs = seq(0, 1, 0.1)) {
 summary_lines <- c(
   sprintf("QC thresholds:"),
   sprintf("  - nCount_peaks: %d < x < %d", CUT_NCOUNT_MIN, CUT_NCOUNT_MAX),
-  sprintf("  - TSS.enrichment: x > %g", CUT_TSS_MIN),
+  sprintf("  - TSS.enrichment: x > %.3f", DYN_TSS_MIN),
   sprintf("  - nucleosome_signal: x < %g", CUT_NS_MAX),
-  sprintf("  - pct_reads_in_peaks: x > %d%%", CUT_PTC_MIN),
+  sprintf("  - pct_reads_in_peaks: x > %.3f%%", DYN_FRIP_MIN),
   sprintf("  - blacklist_ratio: x < %.2f", CUT_BL_MAX)
 )
 
@@ -285,11 +302,18 @@ print_text_page("QC Summary", summary_lines, lines_per_page = 38)
 message("QC report written: ", output_pdf)
 
 
+fmt_num <- function(x, fmt) if (is.na(x)) "NA" else sprintf(fmt, x)
+
 print_text_page(
   "QC Threshold Pass Rates",
   c(
-    sprintf("Cutoffs:  nCount_peaks (%d, %d),  TSS > %g,  NS < %g,  PTC > %d%%,  Blacklist < %.2f",
-            CUT_NCOUNT_MIN, CUT_NCOUNT_MAX, CUT_TSS_MIN, CUT_NS_MAX, CUT_PTC_MIN, CUT_BL_MAX),
+    sprintf("Cutoffs:  nCount_peaks (%d, %d),  TSS > %s,  NS < %g,  PTC > %s%%,  Blacklist < %.2f",
+            CUT_NCOUNT_MIN,
+            CUT_NCOUNT_MAX,
+            fmt_num(DYN_TSS_MIN,  "%.3f"),
+            CUT_NS_MAX,
+            fmt_num(DYN_FRIP_MIN, "%.3f"),
+            CUT_BL_MAX),
     "",
     fmt_pass_line("nCount_peaks",       s_ncount),
     fmt_pass_line("TSS.enrichment",     s_tss),
@@ -301,6 +325,7 @@ print_text_page(
   )
 )
 
+
 # -----------------------------------------
 # Filtering: apply thresholds, save object
 # -----------------------------------------
@@ -309,10 +334,10 @@ filtered_cells <- subset(
   subset =
     nCount_peaks > CUT_NCOUNT_MIN &
     nCount_peaks < CUT_NCOUNT_MAX &
-    pct_reads_in_peaks > CUT_PTC_MIN &
+    pct_reads_in_peaks > DYN_FRIP_MIN &
     blacklist_ratio < CUT_BL_MAX &
     nucleosome_signal < CUT_NS_MAX &
-    TSS.enrichment > CUT_TSS_MIN
+    TSS.enrichment > DYN_TSS_MIN
 )
 
 # Record the sample name inside the object (from the filename)
