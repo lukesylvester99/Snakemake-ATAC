@@ -156,6 +156,59 @@ rule create_seurat_object:
         """
 
 
+
+rule mgatk:
+    """ 
+        Rule to process mitochondrial data with mgatk. 
+        Produces mgatk output directory for each sample.
+    """
+
+    conda: "../envs/mgatk.yaml"
+    input:
+        bam       = f"{OUT_ROOT}/{{sample}}/outs/possorted_bam.bam",
+        barcodes  = f"{OUT_ROOT}/{{sample}}/outs/filtered_peak_bc_matrix/barcodes.tsv.gz"
+    output:
+        outdir = directory(f"{OUT_ROOT}/mgatk/{{sample}}"),
+        done   = touch(f"{OUT_ROOT}/mgatk/{{sample}}/.mgatk_done")
+    params:
+        outdir      = f"{OUT_ROOT}/mgatk/{{sample}}",
+        sample_name = "{wildcards.sample}" 
+    threads: 16
+    resources:
+        mem_mb = 64000
+    log:
+        run = f"{LOG_ROOT}/mgatk/{{sample}}.log"
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p "{params.outdir}" "$(dirname "{log.run}")"
+
+        (
+          echo "==== mgatk START $(date) ===="
+          echo "SAMPLE: {wildcards.sample}"
+          echo "BAM: {input.bam}"
+          echo "BARCODES: {input.barcodes}"
+          echo "OUTDIR: {params.outdir}"
+          echo
+
+          mgatk tenx \
+            -i "{input.bam}" \
+            -b "{input.barcodes}" \
+            -bt CB \
+            -n "{params.sample_name}" \
+            -o "{params.outdir}" \
+            --ncores {threads} \
+            --keep-temp-files
+
+          echo "==== mgatk END $(date) ===="
+        ) &> "{log.run}"
+
+        touch "{output.done}"
+        """
+
+
+
+
 rule qc_metrics:
     """
         Rule to generate QC metrics and plots from Seurat object.
@@ -165,6 +218,7 @@ rule qc_metrics:
     conda: "../envs/seurat.yaml"
     input:
         rds = f"{OUT_ROOT}" + "/seurat_objects/{sample}.rds"
+        mgatk = f"{OUT_ROOT}/mgatk/{{sample}}/.mgatk_done"
     output:
         pdf     = f"{OUT_ROOT}" + "/qc_reports/{sample}_qc_report.pdf",
         cleaned = f"{OUT_ROOT}" + "/seurat_objects_clean/{sample}_filtered_cells.rds"
@@ -180,6 +234,7 @@ rule qc_metrics:
           echo "==== qc_metrics START $(date) ===="
           echo "SAMPLE: {wildcards.sample}"
           echo "INPUT_RDS: {input.rds}"
+          echo "INPUT_MGATK_DIR: $(dirname {input.mgatk})"
           echo "OUTPUT_PDF: {output.pdf}"
           echo "OUTPUT_RDS (clean): {output.cleaned}"
           echo
@@ -187,7 +242,8 @@ rule qc_metrics:
           Rscript workflows/scripts/generate_qc_report.R \
             --input_rds="{input.rds}" \
             --output_pdf="{output.pdf}" \
-            --output_rds="{output.cleaned}"
+            --output_rds="{output.cleaned}"\
+            --mgatk_dir="$(dirname {input.mgatk})"
 
           echo "==== qc_metrics END $(date) ===="
         ) &> "{log.run}"
