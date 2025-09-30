@@ -1,0 +1,23 @@
+name: mgatk-process
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  # Core Python
+  - python=3.10
+
+  # Data handling
+  - pandas
+  - numpy
+
+  # Compression / file support
+  - zlib
+  - pigz
+
+  # Optional: useful for debugging/plots later
+  - matplotlib
+  - seaborn
+
+  # Ensure mgatk binary is available
+  - mgatk

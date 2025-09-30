@@ -36,9 +36,18 @@ TIMEPOINTS = sorted(TP_REPS.keys())
 #-------- Rules --------#
 rule all:
     input:
-         expand("{out_root}/seurat_objects_merged/{tp}_merged.rds",
-               out_root=OUT_ROOT, tp=TIMEPOINTS)
-
+        # merged Seurat objects per timepoint
+        expand("{out_root}/seurat_objects_merged/{tp}_merged.rds",
+               out_root=OUT_ROOT, tp=TIMEPOINTS),
+        # mgatk summaries per sample (to run process_mgatk)
+        expand("{out_root}/process_mgatk/{s}/cells_passing_depth.tsv",
+               out_root=OUT_ROOT, s=SAMPLES),
+        expand("{out_root}/process_mgatk/{s}/variant_stats_filtered.tsv",
+               out_root=OUT_ROOT, s=SAMPLES),
+        expand("{out_root}/process_mgatk/{s}/cell_heteroplasmy_filtered.tsv",
+               out_root=OUT_ROOT, s=SAMPLES),
+        expand("{out_root}/process_mgatk/{s}/variant_summary.tsv",
+               out_root=OUT_ROOT, s=SAMPLES)
 
 rule cellranger_count:
     """
@@ -166,13 +175,13 @@ rule mgatk:
     conda: "../envs/mgatk.yaml"
     input:
         bam       = f"{OUT_ROOT}/{{sample}}/outs/possorted_bam.bam",
-        barcodes  = f"{OUT_ROOT}/{{sample}}/outs/filtered_peak_bc_matrix/barcodes.tsv.gz"
+        barcodes  = f"{OUT_ROOT}/{{sample}}/outs/filtered_peak_bc_matrix/barcodes.tsv"
     output:
         outdir = directory(f"{OUT_ROOT}/mgatk/{{sample}}"),
-        done   = touch(f"{OUT_ROOT}/mgatk/{{sample}}/.mgatk_done")
-    params:
-        outdir      = f"{OUT_ROOT}/mgatk/{{sample}}",
-        sample_name = "{wildcards.sample}" 
+        depth  = f"{OUT_ROOT}/mgatk/{{sample}}/final/{{sample}}.depthTable.txt",
+        var    = f"{OUT_ROOT}/mgatk/{{sample}}/final/{{sample}}.variant_stats.tsv.gz",
+        het    = f"{OUT_ROOT}/mgatk/{{sample}}/final/{{sample}}.cell_heteroplasmic_df.tsv.gz"
+
     threads: 16
     resources:
         mem_mb = 64000
@@ -181,33 +190,77 @@ rule mgatk:
     shell:
         r"""
         set -euo pipefail
-        mkdir -p "{params.outdir}" "$(dirname "{log.run}")"
+        mkdir -p "{output.outdir}" "$(dirname "{log.run}")"
 
         (
           echo "==== mgatk START $(date) ===="
           echo "SAMPLE: {wildcards.sample}"
           echo "BAM: {input.bam}"
           echo "BARCODES: {input.barcodes}"
-          echo "OUTDIR: {params.outdir}"
+          echo "OUTDIR: {output.outdir}"
           echo
 
           mgatk tenx \
             -i "{input.bam}" \
             -b "{input.barcodes}" \
             -bt CB \
-            -n "{params.sample_name}" \
-            -o "{params.outdir}" \
+            -n "{wildcards.sample}"  \
+            -o "{output.outdir}" \
             --ncores {threads} \
             --keep-temp-files
 
           echo "==== mgatk END $(date) ===="
         ) &> "{log.run}"
-
-        touch "{output.done}"
         """
 
+rule process_mgatk:
+    """
+        Rule to process mgatk output and generate summary metrics.
+    """
+    conda: "../envs/process_mgatk.yaml"
+    input:
+        depth = f"{OUT_ROOT}/mgatk/{{sample}}/final/{{sample}}.depthTable.txt",
+        var   = f"{OUT_ROOT}/mgatk/{{sample}}/final/{{sample}}.variant_stats.tsv.gz",
+        het   = f"{OUT_ROOT}/mgatk/{{sample}}/final/{{sample}}.cell_heteroplasmic_df.tsv.gz"
+    output:
+        cells   = f"{OUT_ROOT}/process_mgatk/{{sample}}/cells_passing_depth.tsv",
+        varfilt = f"{OUT_ROOT}/process_mgatk/{{sample}}/variant_stats_filtered.tsv",
+        hetfilt = f"{OUT_ROOT}/process_mgatk/{{sample}}/cell_heteroplasmy_filtered.tsv",
+        summary = f"{OUT_ROOT}/process_mgatk/{{sample}}/variant_summary.tsv"
+    threads: 6
+    log:
+        run = f"{LOG_ROOT}/process_mgatk/{{sample}}.log"
+    shell:
+        r"""
+        set -euo pipefail
 
+        MGDIR="$(dirname "{input.depth}")"            # .../mgatk/<sample>/final
+        OUTDIR="{OUT_ROOT}/process_mgatk/{wildcards.sample}"
+        LOG="{log.run}"
 
+        mkdir -p "$OUTDIR" "$(dirname "$LOG")"
+
+        (
+          echo "==== process_mgatk START $(date) ===="
+          echo "SAMPLE: {wildcards.sample}"
+          echo "MGATK_DIR: $MGDIR"
+          echo "OUTPUT_DIR: $OUTDIR"
+          echo
+          echo "[Env] $(python -V 2>&1)"
+          echo "[Listing MGDIR]"
+          ls -l "$MGDIR" || true
+          echo
+          echo "[Run] python workflows/scripts/mgatk.py --mgatk_dir \"$MGDIR\" --out_dir \"$OUTDIR\""
+          set -x
+          python -u workflows/scripts/mgatk.py --mgatk_dir "$MGDIR" --out_dir "$OUTDIR"
+          RC=$?
+          set +x
+          echo
+          echo "Exit code: $RC"
+          echo "==== process_mgatk END $(date) ===="
+          exit $RC
+        ) > "$LOG" 2>&1
+        """
 
 rule qc_metrics:
     """
@@ -217,7 +270,7 @@ rule qc_metrics:
     """
     conda: "../envs/seurat.yaml"
     input:
-        rds = f"{OUT_ROOT}" + "/seurat_objects/{sample}.rds"
+        rds = f"{OUT_ROOT}" + "/seurat_objects/{sample}.rds",
         mgatk = f"{OUT_ROOT}/mgatk/{{sample}}/.mgatk_done"
     output:
         pdf     = f"{OUT_ROOT}" + "/qc_reports/{sample}_qc_report.pdf",
