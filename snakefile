@@ -171,17 +171,18 @@ rule mgatk:
         Rule to process mitochondrial data with mgatk. 
         Produces mgatk output directory for each sample.
     """
-
     conda: "../envs/mgatk.yaml"
     input:
-        bam       = f"{OUT_ROOT}/{{sample}}/outs/possorted_bam.bam",
-        barcodes  = f"{OUT_ROOT}/{{sample}}/outs/filtered_peak_bc_matrix/barcodes.tsv"
+        done = f"{OUT_ROOT}/{{sample}}/.cellranger_done"
+    params:
+        bam = lambda wc: f"{OUT_ROOT}/{wc.sample}/outs/possorted_bam.bam",
+        barcodes_gz  = lambda wc: f"{OUT_ROOT}/{wc.sample}/outs/filtered_peak_bc_matrix/barcodes.tsv.gz",
+        barcodes_tsv = lambda wc: f"{OUT_ROOT}/{wc.sample}/outs/filtered_peak_bc_matrix/barcodes.tsv"
     output:
         outdir = directory(f"{OUT_ROOT}/mgatk/{{sample}}"),
         depth  = f"{OUT_ROOT}/mgatk/{{sample}}/final/{{sample}}.depthTable.txt",
         var    = f"{OUT_ROOT}/mgatk/{{sample}}/final/{{sample}}.variant_stats.tsv.gz",
         het    = f"{OUT_ROOT}/mgatk/{{sample}}/final/{{sample}}.cell_heteroplasmic_df.tsv.gz"
-
     threads: 16
     resources:
         mem_mb = 64000
@@ -195,23 +196,39 @@ rule mgatk:
         (
           echo "==== mgatk START $(date) ===="
           echo "SAMPLE: {wildcards.sample}"
-          echo "BAM: {input.bam}"
-          echo "BARCODES: {input.barcodes}"
+          echo "BAM: {params.bam}"
+          echo "BARCODES(gz): {params.barcodes_gz}"
+          echo "BARCODES(tsv): {params.barcodes_tsv}"
           echo "OUTDIR: {output.outdir}"
           echo
 
+          # Decide barcodes path at runtime (prefer .gz, fallback to .tsv)
+          if [ -s "{params.barcodes_gz}" ]; then
+            BARCODES="{params.barcodes_gz}"
+          elif [ -s "{params.barcodes_tsv}" ]; then
+            BARCODES="{params.barcodes_tsv}"
+          else
+            echo "ERROR: neither barcodes.tsv.gz nor barcodes.tsv found." >&2
+            exit 1
+          fi
+
+          # run mgatk inside its outdir to avoid lock issues in repo root
+          cd "{output.outdir}"
+
           mgatk tenx \
-            -i "{input.bam}" \
-            -b "{input.barcodes}" \
+            -i "{params.bam}" \
+            -b "$BARCODES" \
             -bt CB \
-            -n "{wildcards.sample}"  \
-            -o "{output.outdir}" \
+            -n "{wildcards.sample}" \
+            -o "." \
             --ncores {threads} \
             --keep-temp-files
 
           echo "==== mgatk END $(date) ===="
+          ls -l "final" || true
         ) &> "{log.run}"
         """
+
 
 rule process_mgatk:
     """
