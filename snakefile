@@ -1,6 +1,7 @@
 configfile: "config.yaml"
 workdir: "../.."
 from collections import defaultdict
+import os
 
 #-------- Load config variables and helper functions --------#
 
@@ -25,6 +26,20 @@ def seurat_input_paths(sample):
 def timepoint_of(sample: str) -> str:
     # Expects names like S1_1, S2_2, etc. Returns 'S1', 'S2', ...
     return sample.split("_")[0]
+
+"""
+    Returns absolute path if file exists. helps pick between gzipped and 
+    unzipped barcodes file. Called in mgatk rule.
+"""
+
+def abs_path(p): return os.path.abspath(p)
+def pick_barcodes(wc):
+    gz  = abs_path(f"{OUT_ROOT}/{wc.sample}/outs/filtered_peak_bc_matrix/barcodes.tsv.gz")
+    tsv = abs_path(f"{OUT_ROOT}/{wc.sample}/outs/filtered_peak_bc_matrix/barcodes.tsv")
+    if os.path.exists(gz):  return gz
+    if os.path.exists(tsv): return tsv
+    raise ValueError(f"No barcodes file found for sample {wc.sample}")
+
 
 # Group replicates by timepoint
 TP_REPS = defaultdict(list)
@@ -164,25 +179,22 @@ rule create_seurat_object:
         ) &> "{log.run}"
         """
 
-
-
 rule mgatk:
     """ 
         Rule to process mitochondrial data with mgatk. 
         Produces mgatk output directory for each sample.
     """
+
     conda: "../envs/mgatk.yaml"
     input:
-        done = f"{OUT_ROOT}/{{sample}}/.cellranger_done"
-    params:
-        bam = lambda wc: f"{OUT_ROOT}/{wc.sample}/outs/possorted_bam.bam",
-        barcodes_gz  = lambda wc: f"{OUT_ROOT}/{wc.sample}/outs/filtered_peak_bc_matrix/barcodes.tsv.gz",
-        barcodes_tsv = lambda wc: f"{OUT_ROOT}/{wc.sample}/outs/filtered_peak_bc_matrix/barcodes.tsv"
+        bam       = f"{OUT_ROOT}/{{sample}}/outs/possorted_bam.bam",
+        barcodes  = pick_barcodes
     output:
         outdir = directory(f"{OUT_ROOT}/mgatk/{{sample}}"),
-        depth  = f"{OUT_ROOT}/mgatk/{{sample}}/final/{{sample}}.depthTable.txt",
-        var    = f"{OUT_ROOT}/mgatk/{{sample}}/final/{{sample}}.variant_stats.tsv.gz",
-        het    = f"{OUT_ROOT}/mgatk/{{sample}}/final/{{sample}}.cell_heteroplasmic_df.tsv.gz"
+        done   = f"{OUT_ROOT}/mgatk/{{sample}}/.mgatk_done"
+    params:
+        outdir      = f"{OUT_ROOT}/mgatk/{{sample}}",
+        sample_name = lambda wc: wc.sample 
     threads: 16
     resources:
         mem_mb = 64000
@@ -191,68 +203,73 @@ rule mgatk:
     shell:
         r"""
         set -euo pipefail
-        mkdir -p "{output.outdir}" "$(dirname "{log.run}")"
+        mkdir -p "{params.outdir}" "$(dirname "{log.run}")"
 
         (
           echo "==== mgatk START $(date) ===="
           echo "SAMPLE: {wildcards.sample}"
-          echo "BAM: {params.bam}"
-          echo "BARCODES(gz): {params.barcodes_gz}"
-          echo "BARCODES(tsv): {params.barcodes_tsv}"
-          echo "OUTDIR: {output.outdir}"
+          echo "BAM: {input.bam}"
+          echo "BARCODES: {input.barcodes}"
+          echo "OUTDIR: {params.outdir}"
           echo
 
-          # Decide barcodes path at runtime (prefer .gz, fallback to .tsv)
-          if [ -s "{params.barcodes_gz}" ]; then
-            BARCODES="{params.barcodes_gz}"
-          elif [ -s "{params.barcodes_tsv}" ]; then
-            BARCODES="{params.barcodes_tsv}"
-          else
-            echo "ERROR: neither barcodes.tsv.gz nor barcodes.tsv found." >&2
-            exit 1
-          fi
-
-          # run mgatk inside its outdir to avoid lock issues in repo root
-          cd "{output.outdir}"
-
           mgatk tenx \
-            -i "{params.bam}" \
-            -b "$BARCODES" \
+            -i "{input.bam}" \
+            -b "{input.barcodes}" \
             -bt CB \
-            -n "{wildcards.sample}" \
-            -o "." \
+            -n "{params.sample_name}" \
+            -o "{params.outdir}" \
             --ncores {threads} \
             --keep-temp-files
 
           echo "==== mgatk END $(date) ===="
-          ls -l "final" || true
         ) &> "{log.run}"
+
+        touch "{output.done}"
         """
+
 
 
 rule process_mgatk:
     """
         Rule to process mgatk output and generate summary metrics.
+
+        outputs a set of files to the output directory:
+        1. cells_passing_depth.tsv: list of cell barcodes passing depth filter
+        2. variant_stats_filtered.tsv: filtered variant stats after applying strand cor & VMR thresholds
+        3. cell_heteroplasmy_filtered.tsv: A wide VAF matrix after two filters:
+            # Rows (cells): only barcodes in cells_passing_depth.tsv
+            # Columns (variants): only variants in variant_stats_filtered.tsv
+        4. variant_summary.tsv: A per-variant summary joining:
+            # n_cells_with_variant (how many unique cells carry the variant)
+            # VAF stats across cells: n_obs, mean, median, max
     """
     conda: "../envs/process_mgatk.yaml"
+    # Depend ONLY on the mgatk completion marker for ordering
     input:
-        depth = f"{OUT_ROOT}/mgatk/{{sample}}/final/{{sample}}.depthTable.txt",
-        var   = f"{OUT_ROOT}/mgatk/{{sample}}/final/{{sample}}.variant_stats.tsv.gz",
-        het   = f"{OUT_ROOT}/mgatk/{{sample}}/final/{{sample}}.cell_heteroplasmic_df.tsv.gz"
+        done = f"{OUT_ROOT}/mgatk/{{sample}}/.mgatk_done"
+    # Real paths go into params so they don't participate in wildcard resolution
+    params:
+        mgdir  = f"{OUT_ROOT}/mgatk/{{sample}}/final",
+        depth  = f"{OUT_ROOT}/mgatk/{{sample}}/final/{{sample}}.depthTable.txt",
+        var    = f"{OUT_ROOT}/mgatk/{{sample}}/final/{{sample}}.variant_stats.tsv.gz",
+        het    = f"{OUT_ROOT}/mgatk/{{sample}}/final/{{sample}}.cell_heteroplasmic_df.tsv.gz",
+        outdir = f"{OUT_ROOT}/process_mgatk/{{sample}}"
     output:
         cells   = f"{OUT_ROOT}/process_mgatk/{{sample}}/cells_passing_depth.tsv",
         varfilt = f"{OUT_ROOT}/process_mgatk/{{sample}}/variant_stats_filtered.tsv",
         hetfilt = f"{OUT_ROOT}/process_mgatk/{{sample}}/cell_heteroplasmy_filtered.tsv",
         summary = f"{OUT_ROOT}/process_mgatk/{{sample}}/variant_summary.tsv"
     threads: 6
+    resources:
+        mem_mb = 16000
     log:
         run = f"{LOG_ROOT}/process_mgatk/{{sample}}.log"
     shell:
         r"""
-        set -euo pipefail
 
-        MGDIR="$(dirname "{input.depth}")"            # .../mgatk/<sample>/final
-        OUTDIR="{OUT_ROOT}/process_mgatk/{wildcards.sample}"
+        MGDIR="{params.mgdir}"
+        OUTDIR="{params.outdir}"
         LOG="{log.run}"
 
         mkdir -p "$OUTDIR" "$(dirname "$LOG")"
@@ -260,18 +277,25 @@ rule process_mgatk:
         (
           echo "==== process_mgatk START $(date) ===="
           echo "SAMPLE: {wildcards.sample}"
-          echo "MGATK_DIR: $MGDIR"
+          echo "MGATK_FINAL_DIR: $MGDIR"
           echo "OUTPUT_DIR: $OUTDIR"
           echo
           echo "[Env] $(python -V 2>&1)"
-          echo "[Listing MGDIR]"
+          echo "[Check mgatk finals]"
           ls -l "$MGDIR" || true
+
+          [[ -s "{params.depth}" ]] || ( echo "Missing: {params.depth}" >&2; exit 2 )
+          [[ -s "{params.var}"   ]] || ( echo "Missing: {params.var}"   >&2; exit 2 )
+          [[ -s "{params.het}"   ]] || ( echo "Missing: {params.het}"   >&2; exit 2 )
           echo
-          echo "[Run] python workflows/scripts/mgatk.py --mgatk_dir \"$MGDIR\" --out_dir \"$OUTDIR\""
+
           set -x
-          python -u workflows/scripts/mgatk.py --mgatk_dir "$MGDIR" --out_dir "$OUTDIR"
+          python -u workflows/scripts/mgatk.py \
+            --mgatk_dir "$MGDIR" \
+            --out_dir "$OUTDIR"
           RC=$?
           set +x
+
           echo
           echo "Exit code: $RC"
           echo "==== process_mgatk END $(date) ===="
