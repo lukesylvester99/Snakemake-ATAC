@@ -54,6 +54,8 @@ rule all:
         # merged Seurat objects per timepoint
         expand("{out_root}/seurat_objects_merged/{tp}_merged.rds",
                out_root=OUT_ROOT, tp=TIMEPOINTS),
+        # merged Seurat object for all timepoints
+        f"{OUT_ROOT}/seurat_objects_merged/all_timepoints_merged.rds",
         # mgatk summaries per sample (to run process_mgatk)
         expand("{out_root}/process_mgatk/{s}/cells_passing_depth.tsv",
                out_root=OUT_ROOT, s=SAMPLES),
@@ -229,7 +231,6 @@ rule mgatk:
         """
 
 
-
 rule process_mgatk:
     """
         Rule to process mgatk output and generate summary metrics.
@@ -245,10 +246,8 @@ rule process_mgatk:
             # VAF stats across cells: n_obs, mean, median, max
     """
     conda: "../envs/process_mgatk.yaml"
-    # Depend ONLY on the mgatk completion marker for ordering
     input:
         done = f"{OUT_ROOT}/mgatk/{{sample}}/.mgatk_done"
-    # Real paths go into params so they don't participate in wildcard resolution
     params:
         mgdir  = f"{OUT_ROOT}/mgatk/{{sample}}/final",
         depth  = f"{OUT_ROOT}/mgatk/{{sample}}/final/{{sample}}.depthTable.txt",
@@ -356,7 +355,7 @@ rule merge_timepoint:
             s=TP_REPS[wc.timepoint]
         )
     params:
-        # Build one --input_rds="..." flag per file (robust, no giant argv token)
+        # Build one --input_rds="..." flag per file
         input_flags=lambda wc: ' '.join(
             f'--input_rds="{p}"'
             for p in expand(
@@ -387,5 +386,45 @@ rule merge_timepoint:
             --output_rds="{output.merged}"
 
           echo "==== merge_timepoint END $(date) ===="
+        ) &> "{log.run}"
+        """
+
+
+rule merge_all_timepoints:
+    """
+    Merge ALL timepoints' cleaned Seurat objects into one object using a
+    global shared peak set, then TF-IDF → LSI → Harmony(replicate) → UMAP.
+    """
+    conda: "../envs/merge.yaml"
+    input:
+        expand(f"{OUT_ROOT}/seurat_objects_clean/{{s}}_filtered_cells.rds", s=SAMPLES)
+    params:
+        # flags like --input_rds=".../A_filtered_cells.rds" --input_rds=".../B_filtered_cells.rds" ...
+        input_flags=lambda wc: ' '.join(
+            f'--input_rds="{p}"'
+            for p in expand(f"{OUT_ROOT}/seurat_objects_clean/{{s}}_filtered_cells.rds", s=SAMPLES)
+        )
+    output:
+        merged_all = f"{OUT_ROOT}/seurat_objects_merged/all_timepoints_merged.rds"
+    threads: 6
+    log:
+        run = f"{LOG_ROOT}/merge/all_timepoints.log"
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p "{OUT_ROOT}/seurat_objects_merged" "$(dirname "{log.run}")"
+
+        (
+          echo "==== merge_all_timepoints START $(date) ===="
+          echo "N_INPUTS: $(echo {input} | wc -w)"
+          for f in {input}; do echo "  - $f"; done
+          echo "OUTPUT_RDS (all-timepoints): {output.merged_all}"
+          echo
+
+          Rscript workflows/scripts/merge_all.R \
+            {params.input_flags} \
+            --output_rds="{output.merged_all}"
+
+          echo "==== merge_all_timepoints END $(date) ===="
         ) &> "{log.run}"
         """
